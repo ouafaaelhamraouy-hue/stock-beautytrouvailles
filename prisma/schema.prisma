@@ -1,0 +1,182 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// Users table - profile/role table keyed by Supabase auth.users.id
+model User {
+  id        String   @id // Maps to auth.users.id from Supabase
+  email     String   @unique
+  fullName  String?
+  role      UserRole @default(STAFF)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  STAFF
+}
+
+// Categories
+model Category {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  products Product[]
+
+  @@map("categories")
+}
+
+// Suppliers
+model Supplier {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  contactInfo String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  shipments Shipment[]
+
+  @@map("suppliers")
+}
+
+// Products
+model Product {
+  id            String    @id @default(cuid())
+  sku           String    @unique
+  name          String
+  description   String?
+  categoryId    String
+  basePriceEUR  Float
+  basePriceDH   Float
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  category      Category        @relation(fields: [categoryId], references: [id])
+  shipmentItems ShipmentItem[]
+  sales         Sale[]
+
+  @@map("products")
+}
+
+// Shipments
+model Shipment {
+  id              String    @id @default(cuid())
+  reference       String    @unique
+  supplierId      String
+  arrivalDate     DateTime?
+  status          ShipmentStatus @default(PENDING)
+  exchangeRate    Float
+  shippingCostEUR Float     @default(0)
+  customsCostEUR  Float     @default(0)
+  packagingCostEUR Float    @default(0)
+  totalCostEUR    Float     // Will be maintained by DB trigger or calculated
+  totalCostDH     Float     // Will be maintained by DB trigger or calculated
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  supplier    Supplier       @relation(fields: [supplierId], references: [id])
+  items       ShipmentItem[]
+  expenses    Expense[]
+
+  @@map("shipments")
+}
+
+enum ShipmentStatus {
+  PENDING
+  IN_TRANSIT
+  ARRIVED
+  PROCESSED
+}
+
+// Shipment Items
+model ShipmentItem {
+  id               String   @id @default(cuid())
+  shipmentId       String
+  productId        String
+  quantity         Int      // Received quantity
+  quantitySold     Int      @default(0) // Maintained by DB trigger
+  quantityRemaining Int     @default(0) // Maintained by DB trigger (quantity - quantitySold)
+  costPerUnitEUR   Float
+  costPerUnitDH    Float
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id])
+
+  @@unique([shipmentId, productId])
+  @@map("shipment_items")
+  @@index([productId])
+  @@index([shipmentId])
+}
+
+// Sales
+model Sale {
+  id          String    @id @default(cuid())
+  saleDate    DateTime  @default(now())
+  productId   String
+  quantity    Int
+  pricePerUnit Float
+  totalAmount Float    // Must equal quantity * pricePerUnit
+  isPromo     Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@map("sales")
+  @@index([saleDate])
+  @@index([productId])
+}
+
+// Expenses
+model Expense {
+  id          String      @id @default(cuid())
+  date        DateTime    @default(now())
+  amountEUR   Float
+  amountDH    Float
+  description String
+  type        ExpenseType
+  shipmentId  String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  shipment Shipment? @relation(fields: [shipmentId], references: [id])
+
+  @@map("expenses")
+  @@index([date])
+}
+
+enum ExpenseType {
+  OPERATIONAL
+  MARKETING
+  UTILITIES
+  OTHER
+}
+
+// Settings
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
