@@ -19,6 +19,10 @@ import NotificationsIcon from '@mui/icons-material/Notifications';
 import LanguageIcon from '@mui/icons-material/Language';
 import LogoutIcon from '@mui/icons-material/Logout';
 import PersonIcon from '@mui/icons-material/Person';
+import MenuIcon from '@mui/icons-material/Menu';
+import LightModeIcon from '@mui/icons-material/LightMode';
+import DarkModeIcon from '@mui/icons-material/DarkMode';
+import { useThemeMode } from '@/components/providers/ThemeProvider';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useTranslations, useLocale } from 'next-intl';
@@ -29,9 +33,13 @@ import { alpha, styled } from '@mui/material/styles';
 const Search = styled('div')(({ theme }) => ({
   position: 'relative',
   borderRadius: theme.shape.borderRadius,
-  backgroundColor: alpha(theme.palette.common.white, 0.15),
+  backgroundColor: theme.palette.mode === 'dark' 
+    ? alpha(theme.palette.common.white, 0.05)
+    : alpha(theme.palette.common.white, 0.15),
   '&:hover': {
-    backgroundColor: alpha(theme.palette.common.white, 0.25),
+    backgroundColor: theme.palette.mode === 'dark'
+      ? alpha(theme.palette.common.white, 0.08)
+      : alpha(theme.palette.common.white, 0.25),
   },
   marginRight: theme.spacing(2),
   marginLeft: 0,
@@ -65,7 +73,11 @@ const StyledInputBase = styled(InputBase)(({ theme }) => ({
   },
 }));
 
-export function Topbar() {
+interface TopbarProps {
+  onMenuClick?: () => void;
+}
+
+export function Topbar({ onMenuClick }: TopbarProps) {
   const t = useTranslations('layout');
   const tCommon = useTranslations('common');
   const tNav = useTranslations('nav');
@@ -75,6 +87,7 @@ export function Topbar() {
   const router = useRouter();
   const intlRouter = useIntlRouter();
   const intlPathname = useIntlPathname();
+  const { mode, toggleMode } = useThemeMode();
   const [searchValue, setSearchValue] = useState('');
   const [userMenuAnchor, setUserMenuAnchor] = useState<null | HTMLElement>(null);
   const [notificationsAnchor, setNotificationsAnchor] = useState<null | HTMLElement>(null);
@@ -124,9 +137,44 @@ export function Topbar() {
   };
 
   return (
-    <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
-      <Toolbar>
-        <Typography variant="h6" noWrap component="div" sx={{ display: { xs: 'none', sm: 'block' } }}>
+    <AppBar 
+      position="fixed" 
+      elevation={0}
+        sx={(theme) => ({ 
+        zIndex: theme.zIndex.drawer + 1,
+        // White text/icons on pink background in light mode
+        color: theme.palette.mode === 'light' ? '#FFFFFF' : 'text.primary',
+      })}
+    >
+      <Toolbar sx={{ minHeight: { xs: '56px !important', sm: '64px !important' }, px: { xs: 2, sm: 3 } }}>
+        <IconButton
+          edge="start"
+          onClick={onMenuClick}
+          sx={(theme) => ({ 
+            mr: 2,
+            color: theme.palette.mode === 'light' ? '#FFFFFF' : 'text.primary',
+            '&:hover': {
+              backgroundColor: theme.palette.mode === 'dark'
+                ? 'rgba(255, 255, 255, 0.08)'
+                : 'rgba(255, 255, 255, 0.15)',
+            },
+          })}
+        >
+          <MenuIcon />
+        </IconButton>
+        
+        <Typography 
+          variant="h6" 
+          noWrap 
+          component="div" 
+          sx={(theme) => ({ 
+            display: { xs: 'none', sm: 'block' },
+            fontWeight: 700,
+            fontSize: '1.125rem',
+            color: theme.palette.mode === 'light' ? '#FFFFFF' : 'text.primary',
+            letterSpacing: '-0.02em',
+          })}
+        >
           BeautyTrouvailles
         </Typography>
 
@@ -134,22 +182,68 @@ export function Topbar() {
 
         {/* Search */}
         <form onSubmit={handleSearch}>
-          <Search>
+          <Search
+            sx={(theme) => ({
+              backgroundColor: theme.palette.mode === 'dark' 
+                ? 'rgba(255, 255, 255, 0.05)' 
+                : 'rgba(255, 255, 255, 0.15)',
+              borderRadius: 2,
+              border: '1px solid',
+              borderColor: theme.palette.mode === 'dark' 
+                ? 'rgba(255, 255, 255, 0.1)' 
+                : 'rgba(255, 255, 255, 0.25)',
+              transition: 'all 0.2s ease',
+              '&:hover': {
+                backgroundColor: theme.palette.mode === 'dark'
+                  ? 'rgba(255, 255, 255, 0.08)'
+                  : 'rgba(255, 255, 255, 0.25)',
+                borderColor: theme.palette.mode === 'dark'
+                  ? 'rgba(255, 255, 255, 0.15)'
+                  : 'rgba(255, 255, 255, 0.35)',
+              },
+              '&:focus-within': {
+                backgroundColor: theme.palette.mode === 'dark'
+                  ? 'rgba(255, 255, 255, 0.08)'
+                  : 'rgba(255, 255, 255, 0.3)',
+                borderColor: '#FFFFFF',
+                boxShadow: '0 0 0 3px rgba(255, 255, 255, 0.2)',
+              },
+            })}
+          >
             <SearchIconWrapper>
-              <SearchIcon />
+              <SearchIcon sx={(theme) => ({ 
+                color: theme.palette.mode === 'light' ? 'rgba(255, 255, 255, 0.7)' : 'text.secondary' 
+              })} />
             </SearchIconWrapper>
             <StyledInputBase
               placeholder={t('searchPlaceholder')}
               inputProps={{ 'aria-label': 'search' }}
               value={searchValue}
               onChange={(e) => setSearchValue(e.target.value)}
+              sx={(theme) => ({
+                color: theme.palette.mode === 'light' ? '#FFFFFF' : 'text.primary',
+                '& input::placeholder': {
+                  color: theme.palette.mode === 'light' ? 'rgba(255, 255, 255, 0.7)' : 'text.secondary',
+                  opacity: 1,
+                },
+              })}
             />
           </Search>
         </form>
 
         {/* Notifications */}
         <Tooltip title={t('notifications')}>
-          <IconButton color="inherit" onClick={handleNotificationsOpen}>
+          <IconButton 
+            onClick={handleNotificationsOpen}
+            sx={(theme) => ({
+              color: theme.palette.mode === 'light' ? '#FFFFFF' : 'text.primary',
+              '&:hover': {
+                backgroundColor: theme.palette.mode === 'dark'
+                  ? 'rgba(255, 255, 255, 0.08)'
+                  : 'rgba(255, 255, 255, 0.15)',
+              },
+            })}
+          >
             <Badge badgeContent={0} color="error">
               <NotificationsIcon />
             </Badge>
@@ -159,13 +253,51 @@ export function Topbar() {
           anchorEl={notificationsAnchor}
           open={Boolean(notificationsAnchor)}
           onClose={handleNotificationsClose}
+          PaperProps={{
+            sx: (theme) => ({
+              mt: 1,
+              borderRadius: 2,
+              boxShadow: theme.palette.mode === 'dark'
+                ? '0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3)'
+                : '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+              border: `1px solid ${theme.palette.divider}`,
+              backgroundColor: theme.palette.background.paper,
+            }),
+          }}
         >
           <MenuItem disabled>{t('noNotifications')}</MenuItem>
         </Menu>
 
+        {/* Theme Toggle */}
+        <Tooltip title={mode === 'light' ? 'Mode sombre' : 'Mode clair'}>
+          <IconButton 
+            onClick={toggleMode}
+            sx={(theme) => ({
+              color: theme.palette.mode === 'light' ? '#FFFFFF' : 'text.primary',
+              '&:hover': {
+                backgroundColor: theme.palette.mode === 'dark'
+                  ? 'rgba(255, 255, 255, 0.08)'
+                  : 'rgba(255, 255, 255, 0.15)',
+              },
+            })}
+          >
+            {mode === 'light' ? <DarkModeIcon /> : <LightModeIcon />}
+          </IconButton>
+        </Tooltip>
+
         {/* Locale Switch */}
         <Tooltip title={t('switchTo') + ' ' + (locale === 'en' ? 'Français' : 'English')}>
-          <IconButton color="inherit" onClick={handleLocaleMenuOpen}>
+          <IconButton 
+            onClick={handleLocaleMenuOpen}
+            sx={(theme) => ({
+              color: theme.palette.mode === 'light' ? '#FFFFFF' : 'text.primary',
+              '&:hover': {
+                backgroundColor: theme.palette.mode === 'dark'
+                  ? 'rgba(255, 255, 255, 0.08)'
+                  : 'rgba(255, 255, 255, 0.15)',
+              },
+            })}
+          >
             <LanguageIcon />
           </IconButton>
         </Tooltip>
@@ -173,6 +305,17 @@ export function Topbar() {
           anchorEl={localeMenuAnchor}
           open={Boolean(localeMenuAnchor)}
           onClose={handleLocaleMenuClose}
+          PaperProps={{
+            sx: (theme) => ({
+              mt: 1,
+              borderRadius: 2,
+              boxShadow: theme.palette.mode === 'dark'
+                ? '0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3)'
+                : '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+              border: `1px solid ${theme.palette.divider}`,
+              backgroundColor: theme.palette.background.paper,
+            }),
+          }}
         >
           <MenuItem
             onClick={() => handleLocaleChange('en')}
@@ -192,8 +335,18 @@ export function Topbar() {
         {user && (
           <>
             <Tooltip title={t('userMenu')}>
-              <IconButton onClick={handleUserMenuOpen} sx={{ ml: 1 }}>
-                <Avatar sx={{ width: 32, height: 32, bgcolor: 'secondary.main' }}>
+              <IconButton 
+                onClick={handleUserMenuOpen} 
+                sx={(theme) => ({ 
+                  ml: 1,
+                  '&:hover': {
+                    backgroundColor: theme.palette.mode === 'dark'
+                      ? 'rgba(255, 255, 255, 0.08)'
+                      : 'rgba(255, 255, 255, 0.15)',
+                  },
+                })}
+              >
+                <Avatar sx={{ width: 36, height: 36, bgcolor: 'primary.main', fontSize: '0.875rem', fontWeight: 600 }}>
                   {user.email?.charAt(0).toUpperCase() || 'U'}
                 </Avatar>
               </IconButton>
@@ -202,6 +355,18 @@ export function Topbar() {
               anchorEl={userMenuAnchor}
               open={Boolean(userMenuAnchor)}
               onClose={handleUserMenuClose}
+              PaperProps={{
+                sx: (theme) => ({
+                  mt: 1,
+                  borderRadius: 2,
+                  boxShadow: theme.palette.mode === 'dark'
+                    ? '0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3)'
+                    : '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+                  border: `1px solid ${theme.palette.divider}`,
+                  minWidth: 200,
+                  backgroundColor: theme.palette.background.paper,
+                }),
+              }}
             >
               <MenuItem disabled>
                 <Box>

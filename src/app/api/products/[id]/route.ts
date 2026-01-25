@@ -19,7 +19,6 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user profile to check role
     const userProfile = await prisma.user.findUnique({
       where: { id: user.id },
     });
@@ -36,12 +35,7 @@ export async function GET(
       where: { id },
       include: {
         category: true,
-        shipmentItems: {
-          select: {
-            quantityRemaining: true,
-            quantitySold: true,
-          },
-        },
+        arrivage: true,
       },
     });
 
@@ -49,22 +43,7 @@ export async function GET(
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
 
-    // Calculate total stock
-    const totalStock = product.shipmentItems.reduce(
-      (sum, item) => sum + item.quantityRemaining,
-      0
-    );
-    const totalSold = product.shipmentItems.reduce(
-      (sum, item) => sum + item.quantitySold,
-      0
-    );
-
-    return NextResponse.json({
-      ...product,
-      totalStock,
-      totalSold,
-      shipmentItems: undefined,
-    });
+    return NextResponse.json(product);
   } catch (error) {
     console.error('Error fetching product:', error);
     return NextResponse.json(
@@ -74,7 +53,7 @@ export async function GET(
   }
 }
 
-export async function PUT(
+export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -90,7 +69,6 @@ export async function PUT(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user profile to check role
     const userProfile = await prisma.user.findUnique({
       where: { id: user.id },
     });
@@ -104,61 +82,54 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { sku, name, description, categoryId, basePriceEUR, basePriceDH } = body;
+    const updateData: any = {};
 
-    // Check if product exists
-    const existingProduct = await prisma.product.findUnique({
+    // Get current product to access arrivage exchange rate
+    const currentProduct = await prisma.product.findUnique({
       where: { id },
+      include: { arrivage: true },
     });
 
-    if (!existingProduct) {
-      return NextResponse.json({ error: 'Product not found' }, { status: 404 });
+    let exchangeRate = 10.85; // Default
+    if (currentProduct?.arrivage) {
+      exchangeRate = currentProduct.arrivage.exchangeRate.toNumber();
     }
 
-    // If SKU is being changed, check if new SKU already exists
-    if (sku && sku !== existingProduct.sku) {
-      const skuExists = await prisma.product.findUnique({
-        where: { sku },
-      });
-
-      if (skuExists) {
-        return NextResponse.json(
-          { error: 'Product with this SKU already exists' },
-          { status: 400 }
-        );
+    // Only update provided fields
+    if (body.name !== undefined) updateData.name = body.name;
+    if (body.brand !== undefined) updateData.brand = body.brand;
+    if (body.categoryId !== undefined) updateData.categoryId = body.categoryId;
+    if (body.purchaseSource !== undefined) updateData.purchaseSource = body.purchaseSource;
+    if (body.purchasePriceEur !== undefined) {
+      updateData.purchasePriceEur = body.purchasePriceEur;
+      // Auto-calculate MAD if EUR is updated
+      if (body.purchasePriceEur && body.purchasePriceEur > 0) {
+        updateData.purchasePriceMad = body.purchasePriceEur * exchangeRate;
       }
     }
+    if (body.purchasePriceMad !== undefined) updateData.purchasePriceMad = body.purchasePriceMad;
+    if (body.sellingPriceDh !== undefined) updateData.sellingPriceDh = body.sellingPriceDh;
+    if (body.promoPriceDh !== undefined) updateData.promoPriceDh = body.promoPriceDh;
+    if (body.quantityReceived !== undefined) updateData.quantityReceived = body.quantityReceived;
+    if (body.quantitySold !== undefined) updateData.quantitySold = body.quantitySold;
+    if (body.reorderLevel !== undefined) updateData.reorderLevel = body.reorderLevel;
+    if (body.isActive !== undefined) updateData.isActive = body.isActive;
 
-    // Verify category exists if changed
-    if (categoryId && categoryId !== existingProduct.categoryId) {
-      const category = await prisma.category.findUnique({
-        where: { id: categoryId },
-      });
-
-      if (!category) {
-        return NextResponse.json({ error: 'Category not found' }, { status: 400 });
-      }
-    }
-
-    // Update product
     const product = await prisma.product.update({
       where: { id },
-      data: {
-        sku: sku || existingProduct.sku,
-        name: name || existingProduct.name,
-        description: description !== undefined ? description : existingProduct.description,
-        categoryId: categoryId || existingProduct.categoryId,
-        basePriceEUR: basePriceEUR !== undefined ? basePriceEUR : existingProduct.basePriceEUR,
-        basePriceDH: basePriceDH !== undefined ? basePriceDH : existingProduct.basePriceDH,
-      },
+      data: updateData,
       include: {
         category: true,
+        arrivage: true,
       },
     });
 
     return NextResponse.json(product);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error updating product:', error);
+    if (error.code === 'P2025') {
+      return NextResponse.json({ error: 'Product not found' }, { status: 404 });
+    }
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -182,7 +153,6 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user profile to check role
     const userProfile = await prisma.user.findUnique({
       where: { id: user.id },
     });
@@ -195,35 +165,18 @@ export async function DELETE(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Check if product exists
-    const product = await prisma.product.findUnique({
+    // Soft delete by setting isActive to false
+    await prisma.product.update({
       where: { id },
-      include: {
-        shipmentItems: true,
-        sales: true,
-      },
-    });
-
-    if (!product) {
-      return NextResponse.json({ error: 'Product not found' }, { status: 404 });
-    }
-
-    // Check if product has associated shipment items or sales
-    if (product.shipmentItems.length > 0 || product.sales.length > 0) {
-      return NextResponse.json(
-        { error: 'Cannot delete product with associated shipments or sales' },
-        { status: 400 }
-      );
-    }
-
-    // Delete product
-    await prisma.product.delete({
-      where: { id },
+      data: { isActive: false },
     });
 
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error deleting product:', error);
+    if (error.code === 'P2025') {
+      return NextResponse.json({ error: 'Product not found' }, { status: 404 });
+    }
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

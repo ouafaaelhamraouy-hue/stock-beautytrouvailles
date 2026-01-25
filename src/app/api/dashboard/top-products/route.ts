@@ -4,9 +4,9 @@ import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
 
 /**
- * Get top products by revenue (top 10)
+ * Get top products by quantity sold
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const supabase = await createClient();
     const {
@@ -26,51 +26,43 @@ export async function GET() {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
 
-    // Get all sales grouped by product
-    const sales = await prisma.sale.findMany({
-      include: {
-        product: {
-          include: {
-            category: true,
+    // Get query parameters
+    const { searchParams } = new URL(request.url);
+    const limit = parseInt(searchParams.get('limit') || '5');
+
+    // Get all products with sales, sorted by quantity sold
+    const products = await prisma.product.findMany({
+      where: {
+        isActive: true,
+        quantitySold: {
+          gt: 0,
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        quantitySold: true,
+        category: {
+          select: {
+            name: true,
+            nameFr: true,
           },
         },
       },
+      orderBy: {
+        quantitySold: 'desc',
+      },
+      take: limit,
     });
 
-    // Group by product and calculate totals
-    const productStats = sales.reduce((acc, sale) => {
-      const productId = sale.productId;
-      if (!acc[productId]) {
-        acc[productId] = {
-          product: sale.product,
-          totalRevenue: 0,
-          totalQuantity: 0,
-          salesCount: 0,
-        };
-      }
-      acc[productId].totalRevenue += sale.totalAmount;
-      acc[productId].totalQuantity += sale.quantity;
-      acc[productId].salesCount += 1;
-      return acc;
-    }, {} as Record<string, {
-      product: typeof sales[0]['product'];
-      totalRevenue: number;
-      totalQuantity: number;
-      salesCount: number;
-    }>);
+    // Format response
+    const topProducts = products.map((product) => ({
+      name: product.name,
+      totalSold: product.quantitySold,
+      category: product.category.nameFr || product.category.name,
+    }));
 
-    // Convert to array, sort by revenue, and take top 10
-    const topProducts = Object.values(productStats)
-      .sort((a, b) => b.totalRevenue - a.totalRevenue)
-      .slice(0, 10)
-      .map((stat) => ({
-        product: stat.product,
-        totalRevenue: stat.totalRevenue,
-        totalQuantity: stat.totalQuantity,
-        salesCount: stat.salesCount,
-      }));
-
-    return NextResponse.json(topProducts);
+    return NextResponse.json({ products: topProducts });
   } catch (error) {
     console.error('Error fetching top products:', error);
     return NextResponse.json(

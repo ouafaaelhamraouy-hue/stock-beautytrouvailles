@@ -41,10 +41,22 @@
   },
   "auth": {
     "loginTitle": "Connectez-vous à votre compte",
+    "welcomeBack": "Bon retour",
     "loginButton": "Se connecter",
     "invalidCredentials": "Email ou mot de passe invalide",
     "signingIn": "Connexion en cours...",
-    "pleaseWait": "Veuillez patienter..."
+    "pleaseWait": "Veuillez patienter...",
+    "emailAddress": "Adresse e-mail",
+    "enterEmail": "Entrez votre e-mail",
+    "password": "Mot de passe",
+    "enterPassword": "Entrez votre mot de passe",
+    "forgotPassword": "Mot de passe oublié ?",
+    "rememberMe": "Se souvenir de moi",
+    "orContinueWith": "Ou continuer avec",
+    "dontHaveAccount": "Vous n'avez pas de compte ?",
+    "signUp": "S'inscrire",
+    "welcomeTo": "Bienvenue sur",
+    "beautyTrouvailles": "BeautyTrouvailles"
   },
   "ui": {
     "noData": "Aucune donnée disponible",
@@ -140,6 +152,9 @@
     "operational": "Opérationnel",
     "marketing": "Marketing",
     "utilities": "Services publics",
+    "packaging": "Emballage",
+    "shipping": "Expédition",
+    "ads": "Publicité",
     "other": "Autre",
     "noExpenses": "Aucune dépense trouvée"
   }

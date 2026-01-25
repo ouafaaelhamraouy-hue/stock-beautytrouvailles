@@ -11,17 +11,20 @@ const locales = {
  * Format currency based on locale and currency type
  */
 export function formatCurrency(amount: number, currency: 'EUR' | 'DH', locale: 'en' | 'fr' = 'en'): string {
+  // Handle invalid values
+  const numAmount = typeof amount === 'number' && !isNaN(amount) ? amount : 0;
+  
   if (currency === 'EUR') {
     return new Intl.NumberFormat(locale === 'fr' ? 'fr-FR' : 'en-US', {
       style: 'currency',
       currency: 'EUR',
-    }).format(amount);
+    }).format(numAmount);
   } else {
     // Moroccan Dirham
     return new Intl.NumberFormat(locale === 'fr' ? 'fr-FR' : 'en-US', {
       style: 'currency',
       currency: 'MAD',
-    }).format(amount);
+    }).format(numAmount);
   }
 }
 

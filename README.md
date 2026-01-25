@@ -4,9 +4,7 @@ Stock management system built with Next.js 15, React 19, TypeScript, MUI v6, Sup
 
 ## 📊 Project Status
 
-**Current Phase:** Phase 2 Complete → Starting Phase 3
-
-See [PROJECT_STATUS.md](./PROJECT_STATUS.md) for detailed status of all phases.
+**Current Phase:** Active Development
 
 ---
 
@@ -330,7 +328,4 @@ npm --version
 
 ## Documentation
 
-- [PROJECT_STATUS.md](./PROJECT_STATUS.md) - Detailed status of all phases
-- [ADMIN_SETUP.md](./ADMIN_SETUP.md) - How to create admin users
-- [SUPABASE_SETUP_GUIDE.md](./SUPABASE_SETUP_GUIDE.md) - Supabase setup instructions
-- [DATABASE_SETUP_GUIDE.md](./DATABASE_SETUP_GUIDE.md) - Database configuration guide
+All setup instructions are included in this README. For additional help, refer to the inline code comments and documentation.

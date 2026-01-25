@@ -1,13 +1,18 @@
 import { z } from 'zod';
 
-// Product validations
+// Product validations - NO SKU, prices in EUR and MAD
 export const productSchema = z.object({
-  sku: z.string().min(1, 'SKU is required').max(100, 'SKU must be less than 100 characters'),
-  name: z.string().min(1, 'Name is required').max(200, 'Name must be less than 200 characters'),
-  description: z.string().max(1000, 'Description must be less than 1000 characters').optional(),
+  name: z.string().min(1, 'Product name is required').max(200, 'Name must be less than 200 characters'),
+  brandId: z.string().optional().nullable(), // Brand relation ID
+  description: z.string().max(1000, 'Description must be less than 1000 characters').optional().nullable(),
   categoryId: z.string().min(1, 'Category is required'),
-  basePriceEUR: z.number().min(0, 'Price must be positive'),
-  basePriceDH: z.number().min(0, 'Price must be positive'),
+  purchaseSource: z.enum(['ACTION', 'CARREFOUR', 'PHARMACIE', 'AMAZON_FR', 'SEPHORA', 'RITUALS', 'NOCIBE', 'LIDL', 'OTHER']).default('OTHER'),
+  purchasePriceEur: z.number().min(0, 'Purchase price EUR must be positive').optional().nullable(), // Prix Achat in EUR (original)
+  purchasePriceMad: z.number().min(0, 'Purchase price MAD must be positive'), // PA (Prix Achat) in MAD (calculated or direct)
+  sellingPriceDh: z.number().min(0, 'Selling price must be positive'), // PV (Prix Vente) regular price
+  promoPriceDh: z.number().min(0, 'Promo price must be positive').optional().nullable(), // Prix promo
+  quantityReceived: z.number().int().min(0, 'Quantity must be non-negative').default(0),
+  reorderLevel: z.number().int().min(0, 'Reorder level must be non-negative').default(3), // Default to 3 per optimization plan
 });
 
 export type ProductFormData = z.infer<typeof productSchema>;

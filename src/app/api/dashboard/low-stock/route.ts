@@ -5,9 +5,9 @@ import { hasPermission } from '@/lib/permissions';
 
 /**
  * Get low stock alerts
- * Returns products with low stock (stockPercentage <= 20% or quantityRemaining <= 5)
+ * Returns products with low stock (currentStock <= reorderLevel or currentStock === 0)
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const supabase = await createClient();
     const {
@@ -27,80 +27,47 @@ export async function GET() {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
 
-    // Get all shipment items with products
-    const shipmentItems = await prisma.shipmentItem.findMany({
-      include: {
-        product: {
-          include: {
-            category: true,
-          },
-        },
-        shipment: {
-          include: {
-            supplier: true,
+    // Get query parameters
+    const { searchParams } = new URL(request.url);
+    const limit = parseInt(searchParams.get('limit') || '5');
+
+    // Get all active products
+    const products = await prisma.product.findMany({
+      where: {
+        isActive: true,
+      },
+      select: {
+        id: true,
+        name: true,
+        quantityReceived: true,
+        quantitySold: true,
+        reorderLevel: true,
+        category: {
+          select: {
+            name: true,
+            nameFr: true,
           },
         },
       },
     });
 
-    // Group by product and calculate totals
-    const productStock = shipmentItems.reduce((acc, item) => {
-      const productId = item.productId;
-      if (!acc[productId]) {
-        acc[productId] = {
-          product: item.product,
-          totalQuantity: 0,
-          totalRemaining: 0,
-          totalSold: 0,
-          shipments: [] as Array<{ reference: string; supplier: string; remaining: number }>,
-        };
-      }
-      acc[productId].totalQuantity += item.quantity;
-      acc[productId].totalRemaining += item.quantityRemaining;
-      acc[productId].totalSold += item.quantitySold;
-      acc[productId].shipments.push({
-        reference: item.shipment.reference,
-        supplier: item.shipment.supplier.name,
-        remaining: item.quantityRemaining,
-      });
-      return acc;
-    }, {} as Record<string, {
-      product: typeof shipmentItems[0]['product'];
-      totalQuantity: number;
-      totalRemaining: number;
-      totalSold: number;
-      shipments: Array<{ reference: string; supplier: string; remaining: number }>;
-    }>);
-
-    // Filter for low stock products
-    const lowStockProducts = Object.values(productStock)
-      .filter((stat) => {
-        const stockPercentage = stat.totalQuantity > 0
-          ? (stat.totalRemaining / stat.totalQuantity) * 100
-          : 0;
-        return stockPercentage <= 20 || stat.totalRemaining <= 5;
-      })
-      .map((stat) => {
-        const stockPercentage = stat.totalQuantity > 0
-          ? (stat.totalRemaining / stat.totalQuantity) * 100
-          : 0;
-        const status: 'low_stock' | 'out_of_stock' = stat.totalRemaining === 0
-          ? 'out_of_stock'
-          : 'low_stock';
-
+    // Calculate current stock and filter for low stock
+    const lowStockProducts = products
+      .map((product) => {
+        const currentStock = product.quantityReceived - product.quantitySold;
         return {
-          product: stat.product,
-          totalQuantity: stat.totalQuantity,
-          totalRemaining: stat.totalRemaining,
-          totalSold: stat.totalSold,
-          stockPercentage,
-          status,
-          shipments: stat.shipments,
+          id: product.id,
+          name: product.name,
+          currentStock,
+          reorderLevel: product.reorderLevel,
+          category: product.category.nameFr || product.category.name,
         };
       })
-      .sort((a, b) => a.totalRemaining - b.totalRemaining); // Sort by remaining quantity (lowest first)
+      .filter((product) => product.currentStock <= product.reorderLevel || product.currentStock === 0)
+      .sort((a, b) => a.currentStock - b.currentStock) // Sort by stock (lowest first)
+      .slice(0, limit); // Take top N
 
-    return NextResponse.json(lowStockProducts);
+    return NextResponse.json({ products: lowStockProducts });
   } catch (error) {
     console.error('Error fetching low stock alerts:', error);
     return NextResponse.json(

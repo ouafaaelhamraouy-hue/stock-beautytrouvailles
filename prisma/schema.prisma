@@ -21,6 +21,8 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  stockMovements StockMovement[]
+
   @@map("users")
 }
 
@@ -33,7 +35,11 @@ enum UserRole {
 model Category {
   id          String    @id @default(cuid())
   name        String    @unique
+  nameFr      String?
   description String?
+  targetMargin Int      @default(45)  // Target margin %
+  minMargin   Int       @default(30)  // Minimum acceptable margin %
+  color       String?   @default("#ECEFF1")  // Category color for UI
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -42,98 +48,181 @@ model Category {
   @@map("categories")
 }
 
-// Suppliers
-model Supplier {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  contactInfo String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+// Brands
+model Brand {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  logoUrl   String?
+  country   String?   @default("France")
+  products  Product[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
-  shipments Shipment[]
-
-  @@map("suppliers")
+  @@map("brands")
 }
 
-// Products
+// Products - Simplified model matching BeautyTrouvailles workflow
+// NO SKU - Product name is the identifier
 model Product {
-  id            String    @id @default(cuid())
-  sku           String    @unique
-  name          String
-  description   String?
-  categoryId    String
-  basePriceEUR  Float
-  basePriceDH   Float
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                String    @id @default(cuid())
+  name              String    // Product name is the identifier (no SKU)
+  categoryId        String
+  brandId           String?   // Brand relation
+  purchaseSource    PurchaseSource @default(OTHER)
+  imageUrl          String?
+  
+  // Pricing - EUR (original from receipt)
+  purchasePriceEur  Decimal?  @db.Decimal(10, 2)  // Prix Achat in EUR (original)
+  
+  // Pricing - MAD (calculated from EUR × exchange rate, or direct from Excel)
+  purchasePriceMad  Decimal   @db.Decimal(10, 2)  // PA (Prix Achat) in MAD
+  sellingPriceDh    Decimal   @db.Decimal(10, 2)   // PV (Prix Vente) regular price
+  promoPriceDh      Decimal?  @db.Decimal(10, 2)   // Prix promo (optional)
+  
+  // Stock
+  quantityReceived  Int       @default(0)  // Quantité
+  quantitySold      Int       @default(0)  // Qt vendu
+  reorderLevel      Int       @default(3)  // Alert when stock <= this
+  
+  // Relations
+  arrivage          Arrivage? @relation(fields: [arrivageId], references: [id])
+  arrivageId        String?
+  brand             Brand?    @relation(fields: [brandId], references: [id])
+  stockMovements    StockMovement[]
+  sales             Sale[]
+  
+  // Meta
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   category      Category        @relation(fields: [categoryId], references: [id])
-  shipmentItems ShipmentItem[]
-  sales         Sale[]
 
+  @@index([categoryId])
+  @@index([arrivageId])
+  @@index([brandId])
+  @@index([isActive])
+  @@index([purchaseSource])
+  @@index([name])
   @@map("products")
 }
 
-// Shipments
-model Shipment {
+enum PurchaseSource {
+  ACTION      // Discount store (most common)
+  RITUALS     // Premium cosmetics
+  NOCIBE      // Perfume/beauty retailer
+  LIDL        // Discount supermarket
+  CARREFOUR   // Supermarket
+  PHARMACIE   // Pharmacy
+  AMAZON_FR   // Amazon France
+  SEPHORA     // Sephora
+  OTHER       // Other stores
+}
+
+// Arrivages (Shipments) - Simplified model
+// Reference format: "COMMANDE 1111" (date-based)
+model Arrivage {
   id              String    @id @default(cuid())
-  reference       String    @unique
-  supplierId      String
-  arrivalDate     DateTime?
-  status          ShipmentStatus @default(PENDING)
-  exchangeRate    Float
-  shippingCostEUR Float     @default(0)
-  customsCostEUR  Float     @default(0)
-  packagingCostEUR Float    @default(0)
-  totalCostEUR    Float     // Will be maintained by DB trigger or calculated
-  totalCostDH     Float     // Will be maintained by DB trigger or calculated
+  reference       String    @unique  // COMMANDE 1111, COMMANDE 1312, etc.
+  
+  // Dates
+  purchaseDate    DateTime?  // DATE D'ACHAT
+  shipDate        DateTime?  // DATE D'ENVOIS
+  receivedDate    DateTime?
+  
+  // Status
+  status          ArrivageStatus @default(PENDING)
+  
+  // Source store (main store for this shipment)
+  source          PurchaseSource @default(OTHER)
+  
+  // Invoices (can be multiple: FACTURE 1, FACTURE 2, etc.)
+  invoices        String[]  // Array of invoice references
+  
+  // Exchange rate for this shipment (EUR to MAD)
+  exchangeRate    Decimal   @default(10.85) @db.Decimal(10, 4)  // Default: 10.85
+  
+  // Costs - EUR (from FOND sheet)
+  totalCostEur    Decimal   @db.Decimal(10, 2)  // COUT EURO + FRAIS PORT + FRAI EMBALLAGE
+  shippingCostEur Decimal   @db.Decimal(10, 2)  // FRAIS PORT
+  packagingCostEur Decimal  @db.Decimal(10, 2)  // FRAI EMBALLAGE
+  
+  // Costs - DH (calculated from EUR × exchange rate)
+  totalCostDh     Decimal   @db.Decimal(10, 2)  // total DH
+  
+  // Product counts
+  productCount    Int       @default(0)  // NB ARTICL (number of different products)
+  totalUnits      Int       @default(0)  // TOT ARTICL (total units)
+  
+  // Tracking
+  carrier         String?
+  trackingNumber  String?
+  notes           String?
+  
+  // Relations
+  products        Product[]
+  expenses        Expense[]
+  
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  supplier    Supplier       @relation(fields: [supplierId], references: [id])
-  items       ShipmentItem[]
-  expenses    Expense[]
-
-  @@map("shipments")
+  @@map("arrivages")
+  @@index([status])
+  @@index([reference])
+  @@index([source])
 }
 
-enum ShipmentStatus {
-  PENDING
-  IN_TRANSIT
-  ARRIVED
-  PROCESSED
+enum ArrivageStatus {
+  PENDING     // Not yet purchased
+  PURCHASED   // Bought, not shipped
+  SHIPPED     // On the way
+  IN_TRANSIT  // With carrier
+  CUSTOMS     // At customs
+  RECEIVED    // Delivered
 }
 
-// Shipment Items
-model ShipmentItem {
-  id               String   @id @default(cuid())
-  shipmentId       String
-  productId        String
-  quantity         Int      // Received quantity
-  quantitySold     Int      @default(0) // Maintained by DB trigger
-  quantityRemaining Int     @default(0) // Maintained by DB trigger (quantity - quantitySold)
-  costPerUnitEUR   Float
-  costPerUnitDH    Float
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
-  product  Product  @relation(fields: [productId], references: [id])
-
-  @@unique([shipmentId, productId])
-  @@map("shipment_items")
+// Stock Movements - Track all stock changes
+model StockMovement {
+  id            String    @id @default(cuid())
+  
+  product       Product   @relation(fields: [productId], references: [id])
+  productId     String
+  
+  type          MovementType
+  quantity      Int       // Positive for in, negative for out
+  previousQty   Int
+  newQty        Int
+  
+  reference     String?   // Order ID, Arrivage ref, etc.
+  notes         String?
+  
+  user          User?     @relation(fields: [userId], references: [id])
+  userId        String?
+  
+  createdAt     DateTime  @default(now())
+  
   @@index([productId])
-  @@index([shipmentId])
+  @@index([createdAt])
+  @@index([type])
+  @@map("stock_movements")
 }
 
-// Sales
+enum MovementType {
+  ARRIVAGE      // Stock received from shipment
+  SALE          // Sold to customer
+  ADJUSTMENT    // Manual correction
+  RETURN        // Customer return
+  DAMAGED       // Damaged/lost
+}
+
+// Sales - Keep for historical tracking
 model Sale {
   id          String    @id @default(cuid())
   saleDate    DateTime  @default(now())
   productId   String
   quantity    Int
-  pricePerUnit Float
-  totalAmount Float    // Must equal quantity * pricePerUnit
+  pricePerUnit Decimal  @db.Decimal(10, 2)
+  totalAmount Decimal  @db.Decimal(10, 2) // Must equal quantity * pricePerUnit
   isPromo     Boolean   @default(false)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -145,19 +234,19 @@ model Sale {
   @@index([productId])
 }
 
-// Expenses
+// Expenses - Keep for tracking operational costs
 model Expense {
   id          String      @id @default(cuid())
   date        DateTime    @default(now())
-  amountEUR   Float
-  amountDH    Float
+  amountEUR   Decimal     @db.Decimal(10, 2)
+  amountDH    Decimal     @db.Decimal(10, 2)
   description String
   type        ExpenseType
-  shipmentId  String?
+  arrivageId  String?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
-  shipment Shipment? @relation(fields: [shipmentId], references: [id])
+  arrivage Arrivage? @relation(fields: [arrivageId], references: [id])
 
   @@map("expenses")
   @@index([date])
@@ -167,6 +256,9 @@ enum ExpenseType {
   OPERATIONAL
   MARKETING
   UTILITIES
+  PACKAGING    // Fixed packaging costs per sale (plastic, carton, stickers)
+  SHIPPING     // Shipping costs for arrivages
+  ADS          // Advertising and promotion costs
   OTHER
 }
 

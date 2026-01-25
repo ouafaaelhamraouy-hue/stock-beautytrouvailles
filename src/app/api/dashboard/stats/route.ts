@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
+import { calculateMargin, calculateNetMargin } from '@/lib/calculations';
 
 export async function GET() {
   try {
@@ -26,59 +27,110 @@ export async function GET() {
     // Dashboard is readable by all authenticated users (ADMIN and STAFF)
     // Permission check is optional here, but we keep it for consistency
 
-    // Get total products count
-    const totalProducts = await prisma.product.count();
+    // Parallelize all queries for better performance
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
 
-    // Get total shipments count
-    const totalShipments = await prisma.shipment.count();
+    const [
+      totalProducts,
+      totalShipments,
+      salesThisMonth,
+      inventoryValue,
+      totalRevenue,
+      lowStockCount,
+    ] = await Promise.all([
+      // Total active products
+      prisma.product.count({
+        where: { isActive: true },
+      }),
+      // Total arrivages
+      prisma.arrivage.count(),
+      // Sales this month
+      prisma.sale.count({
+        where: {
+          saleDate: {
+            gte: startOfMonth,
+          },
+        },
+      }),
+      // Inventory value (stock * selling price) - optimized
+      prisma.product.findMany({
+        where: { isActive: true },
+        select: {
+          quantityReceived: true,
+          quantitySold: true,
+          sellingPriceDh: true,
+        },
+      }).then((products) => {
+        return products.reduce((sum, p) => {
+          const stock = p.quantityReceived - p.quantitySold;
+          return sum + (stock > 0 ? Number(p.sellingPriceDh) * stock : 0);
+        }, 0);
+      }),
+      // Total revenue (from sales)
+      prisma.sale.aggregate({
+        _sum: {
+          totalAmount: true,
+        },
+      }).then((result) => Number(result._sum.totalAmount || 0)),
+      // Low stock count (stock <= reorderLevel or stock = 0) - optimized
+      prisma.product.findMany({
+        where: { isActive: true },
+        select: {
+          quantityReceived: true,
+          quantitySold: true,
+          reorderLevel: true,
+        },
+      }).then((products) => {
+        return products.filter((p) => {
+          const stock = p.quantityReceived - p.quantitySold;
+          return stock <= p.reorderLevel || stock === 0;
+        }).length;
+      }),
+    ]);
 
-    // Get total sales count
-    const totalSales = await prisma.sale.count();
-
-    // Calculate total inventory (sum of quantityRemaining from all shipment items)
-    const inventoryResult = await prisma.shipmentItem.aggregate({
-      _sum: {
-        quantityRemaining: true,
+    // Calculate average margin from all products (parallel with other queries)
+    const productsForMargin = await prisma.product.findMany({
+      where: { isActive: true },
+      select: {
+        purchasePriceMad: true,
+        sellingPriceDh: true,
       },
     });
-    const totalInventory = inventoryResult._sum.quantityRemaining || 0;
 
-    // Calculate total revenue (sum of totalAmount from all sales)
-    const revenueResult = await prisma.sale.aggregate({
-      _sum: {
-        totalAmount: true,
-      },
+    // Get packaging cost from settings (default 8.00 DH)
+    const packagingSetting = await prisma.setting.findUnique({
+      where: { key: 'packagingCostTotal' },
     });
-    const totalRevenue = revenueResult._sum.totalAmount || 0;
+    const packagingCost = packagingSetting ? parseFloat(packagingSetting.value) : 8.00;
 
-    // Calculate total expenses
-    const expensesResult = await prisma.expense.aggregate({
-      _sum: {
-        amountEUR: true,
-      },
+    // Calculate both gross and net margins
+    let grossMarginSum = 0;
+    let netMarginSum = 0;
+    let validProductCount = 0;
+
+    productsForMargin.forEach((p) => {
+      if (p.purchasePriceMad && p.purchasePriceMad.toNumber() > 0) {
+        grossMarginSum += calculateMargin(p.sellingPriceDh, p.purchasePriceMad);
+        netMarginSum += calculateNetMargin(p.sellingPriceDh, p.purchasePriceMad, packagingCost);
+        validProductCount++;
+      }
     });
-    const totalExpenses = expensesResult._sum.amountEUR || 0;
 
-    // Calculate total cost from shipments
-    const shipmentsResult = await prisma.shipment.aggregate({
-      _sum: {
-        totalCostEUR: true,
-      },
-    });
-    const totalCosts = shipmentsResult._sum.totalCostEUR || 0;
-
-    // Calculate profit (revenue - costs - expenses)
-    const totalProfit = totalRevenue - totalCosts - totalExpenses;
+    const averageMargin = validProductCount > 0 ? grossMarginSum / validProductCount : 0;
+    const averageNetMargin = validProductCount > 0 ? netMarginSum / validProductCount : 0;
 
     return NextResponse.json({
       totalProducts,
       totalShipments,
-      totalSales,
-      totalInventory,
+      salesThisMonth,
+      inventoryValue,
       totalRevenue,
-      totalExpenses,
-      totalCosts,
-      totalProfit,
+      lowStockCount,
+      averageMargin: Number(averageMargin.toFixed(2)),
+      averageNetMargin: Number(averageNetMargin.toFixed(2)),
+      packagingCost,
     });
   } catch (error) {
     console.error('Error fetching dashboard stats:', error);

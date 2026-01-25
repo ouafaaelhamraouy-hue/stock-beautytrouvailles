@@ -12,6 +12,8 @@ import {
   Toolbar,
   Divider,
   Box,
+  Typography,
+  IconButton,
 } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import InventoryIcon from '@mui/icons-material/Inventory';
@@ -25,9 +27,21 @@ import PeopleIcon from '@mui/icons-material/People';
 import FolderIcon from '@mui/icons-material/Folder';
 import BusinessIcon from '@mui/icons-material/Business';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { useUserProfile } from '@/hooks/useUserProfile';
 
-const DRAWER_WIDTH = 240;
+const DEFAULT_DRAWER_WIDTH = 240;
+const DRAWER_WIDTH_COLLAPSED = 64;
+
+interface SidebarProps {
+  drawerWidth?: number;
+  mobileOpen?: boolean;
+  desktopOpen?: boolean;
+  onMobileClose?: () => void;
+  onDesktopToggle?: () => void;
+  isMobile?: boolean;
+}
 
 interface NavItem {
   label: string;
@@ -36,7 +50,14 @@ interface NavItem {
   adminOnly?: boolean;
 }
 
-export function Sidebar() {
+export function Sidebar({
+  drawerWidth = DEFAULT_DRAWER_WIDTH,
+  mobileOpen = false,
+  desktopOpen = true,
+  onMobileClose,
+  onDesktopToggle,
+  isMobile = false,
+}: SidebarProps) {
   const t = useTranslations('nav');
   const locale = useLocale();
   const pathname = usePathname();
@@ -44,6 +65,7 @@ export function Sidebar() {
   const { profile } = useUserProfile();
 
   const isAdmin = profile?.role === 'ADMIN';
+  const isCollapsed = !isMobile && !desktopOpen;
 
   const navItems: NavItem[] = [
     { label: t('dashboard'), icon: <DashboardIcon />, path: '/dashboard' },
@@ -70,21 +92,66 @@ export function Sidebar() {
     router.push(path);
   };
 
-  return (
-    <Drawer
-      variant="permanent"
-      sx={{
-        width: DRAWER_WIDTH,
-        flexShrink: 0,
-        '& .MuiDrawer-paper': {
-          width: DRAWER_WIDTH,
-          boxSizing: 'border-box',
-        },
-        display: { xs: 'none', md: 'block' },
-      }}
-    >
-      <Toolbar />
-      <Box sx={{ overflow: 'auto' }}>
+  const drawerContent = (
+    <>
+      <Toolbar
+        sx={(theme) => ({
+          background: theme.palette.background.paper,
+          borderBottom: `1px solid ${theme.palette.divider}`,
+          minHeight: '64px !important',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          px: 2,
+        })}
+      >
+        {!isCollapsed && (
+          <Typography variant="h6" sx={{ color: 'text.primary', fontWeight: 700, fontSize: '1rem', letterSpacing: '-0.02em' }}>
+            BeautyTrouvailles
+          </Typography>
+        )}
+        {!isMobile && onDesktopToggle && (
+          <IconButton
+            onClick={onDesktopToggle}
+              sx={(theme) => ({
+                color: 'text.primary',
+                ml: 'auto',
+                '&:hover': {
+                  backgroundColor: theme.palette.mode === 'dark' 
+                    ? 'rgba(255, 255, 255, 0.08)' 
+                    : 'rgba(0, 0, 0, 0.04)',
+                },
+              })}
+          >
+            {desktopOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
+          </IconButton>
+        )}
+      </Toolbar>
+      <Box 
+        sx={(theme) => ({ 
+          overflow: 'auto', 
+          py: 2,
+          pb: 3,
+          height: 'calc(100vh - 64px)',
+          '&::-webkit-scrollbar': {
+            width: '8px',
+          },
+          '&::-webkit-scrollbar-track': {
+            backgroundColor: 'transparent',
+          },
+          '&::-webkit-scrollbar-thumb': {
+            backgroundColor: theme.palette.mode === 'dark' 
+              ? 'rgba(255, 255, 255, 0.2)' 
+              : 'rgba(0, 0, 0, 0.2)',
+            borderRadius: '4px',
+            '&:hover': {
+              backgroundColor: theme.palette.mode === 'dark' 
+                ? 'rgba(255, 255, 255, 0.3)' 
+                : 'rgba(0, 0, 0, 0.3)',
+            },
+          },
+        })}
+      >
         <List>
           {filteredNavItems.map((item) => {
             // next-intl pathname doesn't include locale prefix
@@ -94,27 +161,43 @@ export function Sidebar() {
                 <ListItemButton
                   selected={isActive}
                   onClick={() => handleNavigation(item.path)}
-                  sx={{
+                  sx={(theme) => ({
+                    borderRadius: 2,
+                    mx: 1,
+                    mb: 0.5,
+                    transition: 'all 0.2s ease',
                     '&.Mui-selected': {
-                      backgroundColor: 'primary.main',
-                      color: 'primary.contrastText',
+                      backgroundColor: theme.palette.mode === 'dark'
+                        ? 'rgba(212, 20, 90, 0.2)'
+                        : 'rgba(212, 20, 90, 0.1)',
+                      color: 'primary.main',
+                      fontWeight: 600,
                       '&:hover': {
-                        backgroundColor: 'primary.dark',
-      },
+                        backgroundColor: theme.palette.mode === 'dark'
+                          ? 'rgba(212, 20, 90, 0.3)'
+                          : 'rgba(212, 20, 90, 0.15)',
+                      },
                       '& .MuiListItemIcon-root': {
-                        color: 'primary.contrastText',
+                        color: 'primary.main',
                       },
                     },
-                  }}
+                    '&:hover': {
+                      backgroundColor: theme.palette.mode === 'dark' 
+                        ? 'rgba(255, 255, 255, 0.08)' 
+                        : 'rgba(0, 0, 0, 0.04)',
+                    },
+                  })}
                 >
                   <ListItemIcon
                     sx={{
-                      color: isActive ? 'primary.contrastText' : 'inherit',
+                      color: isActive ? 'primary.main' : 'text.secondary',
+                      minWidth: isCollapsed ? 0 : 40,
+                      justifyContent: 'center',
                     }}
                   >
                     {item.icon}
                   </ListItemIcon>
-                  <ListItemText primary={item.label} />
+                  {!isCollapsed && <ListItemText primary={item.label} />}
                 </ListItemButton>
               </ListItem>
             );
@@ -122,7 +205,32 @@ export function Sidebar() {
         </List>
         {filteredAdminItems.length > 0 && (
           <>
-            <Divider sx={{ my: 1 }} />
+            <Divider 
+              sx={(theme) => ({ 
+                my: 2,
+                mx: 2,
+                borderColor: theme.palette.mode === 'dark' 
+                  ? 'rgba(255, 255, 255, 0.12)' 
+                  : 'rgba(0, 0, 0, 0.08)',
+              })} 
+            />
+            {!isCollapsed && (
+              <Typography
+                variant="caption"
+                sx={(theme) => ({
+                  px: 3,
+                  py: 1,
+                  color: 'text.secondary',
+                  fontWeight: 600,
+                  fontSize: '0.6875rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                  display: 'block',
+                })}
+              >
+                Administration
+              </Typography>
+            )}
             <List>
               {filteredAdminItems.map((item) => {
                 // next-intl pathname doesn't include locale prefix
@@ -131,28 +239,51 @@ export function Sidebar() {
                   <ListItem key={item.path} disablePadding>
                     <ListItemButton
                       selected={isActive}
-                      onClick={() => handleNavigation(item.path)}
-                      sx={{
+                      onClick={() => {
+                        handleNavigation(item.path);
+                        if (isMobile && onMobileClose) {
+                          onMobileClose();
+                        }
+                      }}
+                      sx={(theme) => ({
+                        borderRadius: 2,
+                        mx: 1,
+                        mb: 0.5,
+                        justifyContent: isCollapsed ? 'center' : 'flex-start',
+                        px: isCollapsed ? 1 : 2,
+                        transition: 'all 0.2s ease',
                         '&.Mui-selected': {
-                          backgroundColor: 'primary.main',
-                          color: 'primary.contrastText',
+                          backgroundColor: theme.palette.mode === 'dark'
+                            ? 'rgba(212, 20, 90, 0.2)'
+                            : 'rgba(212, 20, 90, 0.1)',
+                          color: 'primary.main',
+                          fontWeight: 600,
                           '&:hover': {
-                            backgroundColor: 'primary.dark',
+                            backgroundColor: theme.palette.mode === 'dark'
+                              ? 'rgba(212, 20, 90, 0.3)'
+                              : 'rgba(212, 20, 90, 0.15)',
                           },
                           '& .MuiListItemIcon-root': {
-                            color: 'primary.contrastText',
+                            color: 'primary.main',
                           },
                         },
-                      }}
+                        '&:hover': {
+                          backgroundColor: theme.palette.mode === 'dark' 
+                            ? 'rgba(255, 255, 255, 0.08)' 
+                            : 'rgba(0, 0, 0, 0.04)',
+                        },
+                      })}
                     >
                       <ListItemIcon
                         sx={{
-                          color: isActive ? 'primary.contrastText' : 'inherit',
+                          color: isActive ? 'primary.main' : 'text.secondary',
+                          minWidth: isCollapsed ? 0 : 40,
+                          justifyContent: 'center',
                         }}
                       >
                         {item.icon}
                       </ListItemIcon>
-                      <ListItemText primary={item.label} />
+                      {!isCollapsed && <ListItemText primary={item.label} />}
                     </ListItemButton>
                   </ListItem>
                 );
@@ -161,6 +292,56 @@ export function Sidebar() {
           </>
         )}
       </Box>
-    </Drawer>
+    </>
+  );
+
+  return (
+    <>
+      {/* Mobile drawer */}
+      <Drawer
+        variant="temporary"
+        open={mobileOpen}
+        onClose={onMobileClose}
+        ModalProps={{
+          keepMounted: true, // Better open performance on mobile.
+        }}
+        sx={(theme) => ({
+          display: { xs: 'block', md: 'none' },
+          '& .MuiDrawer-paper': {
+            width: DEFAULT_DRAWER_WIDTH,
+            boxSizing: 'border-box',
+            background: theme.palette.background.paper,
+            borderRight: `1px solid ${theme.palette.divider}`,
+            boxShadow: 'none',
+          },
+        })}
+      >
+        {drawerContent}
+      </Drawer>
+
+      {/* Desktop drawer */}
+      <Drawer
+        variant="permanent"
+        sx={(theme) => ({
+          display: { xs: 'none', md: 'block' },
+          width: drawerWidth,
+          flexShrink: 0,
+          '& .MuiDrawer-paper': {
+            width: drawerWidth,
+            boxSizing: 'border-box',
+            background: theme.palette.background.paper,
+            borderRight: `1px solid ${theme.palette.divider}`,
+            boxShadow: 'none',
+            transition: theme.transitions.create('width', {
+              easing: theme.transitions.easing.sharp,
+              duration: theme.transitions.duration.enteringScreen,
+            }),
+            overflowX: 'hidden',
+          },
+        })}
+      >
+        {drawerContent}
+      </Drawer>
+    </>
   );
 }

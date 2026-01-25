@@ -5,7 +5,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import { useTranslations } from 'next-intl';
 
 interface SearchInputProps {
-  value: string;
+  value?: string;
   onChange: (value: string) => void;
   placeholder?: string;
   fullWidth?: boolean;
@@ -13,7 +13,7 @@ interface SearchInputProps {
 }
 
 export function SearchInput({
-  value,
+  value = '',
   onChange,
   placeholder,
   fullWidth = false,
@@ -23,7 +23,7 @@ export function SearchInput({
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && onSearch) {
-      onSearch(value);
+      onSearch(value || '');
     }
   };
 
@@ -31,7 +31,7 @@ export function SearchInput({
     <TextField
       fullWidth={fullWidth}
       placeholder={placeholder || t('search')}
-      value={value}
+      value={value || ''}
       onChange={(e) => onChange(e.target.value)}
       onKeyPress={handleKeyPress}
       InputProps={{

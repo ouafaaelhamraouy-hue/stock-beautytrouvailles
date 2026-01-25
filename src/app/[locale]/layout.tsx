@@ -2,6 +2,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import { ToasterProvider } from '@/components/providers/ToasterProvider';
+import { QueryProvider } from '@/components/providers/QueryProvider';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { routing } from '@/i18n/routing';
 
@@ -17,16 +18,18 @@ export default async function LocaleLayout({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
-  const messages = await getMessages();
+  const messages = await getMessages({ locale });
 
   return (
-    <NextIntlClientProvider messages={messages}>
-      <ThemeProvider>
-        <AuthProvider>
-          <ToasterProvider />
-          {children}
-        </AuthProvider>
-      </ThemeProvider>
+    <NextIntlClientProvider messages={messages} locale={locale}>
+      <QueryProvider>
+        <ThemeProvider locale={locale as 'fr' | 'en'}>
+          <AuthProvider>
+            <ToasterProvider />
+            {children}
+          </AuthProvider>
+        </ThemeProvider>
+      </QueryProvider>
     </NextIntlClientProvider>
   );
 }

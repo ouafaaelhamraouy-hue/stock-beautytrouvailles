@@ -66,15 +66,20 @@ export function MobileNav() {
   return (
     <>
       <Paper
-        sx={{
+        sx={(theme) => ({
           position: 'fixed',
           bottom: 0,
           left: 0,
           right: 0,
           zIndex: 1000,
           display: { xs: 'block', md: 'none' },
-        }}
-        elevation={3}
+          backgroundColor: theme.palette.mode === 'dark' 
+            ? 'rgba(18, 18, 18, 0.95)' 
+            : theme.palette.background.paper,
+          backdropFilter: 'blur(8px)',
+          borderTop: `1px solid ${theme.palette.divider}`,
+        })}
+        elevation={8}
       >
         <BottomNavigation
           value={getCurrentValue()}
@@ -86,6 +91,55 @@ export function MobileNav() {
             }
           }}
           showLabels
+          sx={(theme) => ({
+            backgroundColor: 'transparent',
+            height: 70,
+            '& .MuiBottomNavigationAction-root': {
+              color: theme.palette.mode === 'dark'
+                ? 'rgba(255, 255, 255, 0.5)'
+                : 'rgba(0, 0, 0, 0.6)',
+              minWidth: 64,
+              padding: '8px 12px 10px',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              '&:hover': {
+                backgroundColor: theme.palette.mode === 'dark'
+                  ? 'rgba(255, 255, 255, 0.05)'
+                  : 'rgba(0, 0, 0, 0.04)',
+              },
+              '&.Mui-selected': {
+                color: theme.palette.primary.main,
+                backgroundColor: theme.palette.mode === 'dark'
+                  ? 'rgba(212, 20, 90, 0.15)'
+                  : 'rgba(212, 20, 90, 0.08)',
+                borderRadius: '12px',
+                margin: '4px',
+                '& .MuiBottomNavigationAction-label': {
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  marginTop: '4px',
+                },
+                '& .MuiSvgIcon-root': {
+                  fontSize: '1.5rem',
+                  filter: theme.palette.mode === 'dark'
+                    ? 'drop-shadow(0 0 8px rgba(212, 20, 90, 0.4))'
+                    : 'none',
+                },
+              },
+              '& .MuiBottomNavigationAction-label': {
+                fontSize: '0.7rem',
+                fontWeight: 500,
+                marginTop: '4px',
+                opacity: theme.palette.mode === 'dark' ? 0.8 : 1,
+                '&.Mui-selected': {
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                },
+              },
+              '& .MuiSvgIcon-root': {
+                fontSize: '1.4rem',
+              },
+            },
+          })}
         >
           {mainNavItems.map((item, index) => (
             <BottomNavigationAction
@@ -109,29 +163,78 @@ export function MobileNav() {
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
         PaperProps={{
-          sx: {
-            borderTopLeftRadius: 16,
-            borderTopRightRadius: 16,
+          sx: (theme) => ({
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
             maxHeight: '70vh',
-          },
+            backgroundColor: theme.palette.background.paper,
+            backgroundImage: 'none',
+          }),
         }}
       >
-        <Box sx={{ p: 2 }}>
-          <Typography variant="h6" gutterBottom>
+        <Box sx={{ p: 3 }}>
+          <Typography 
+            variant="h6" 
+            gutterBottom 
+            sx={{ 
+              fontWeight: 700, 
+              mb: 2,
+              color: 'text.primary',
+            }}
+          >
             {t('menu')}
           </Typography>
-          <List>
+          <List sx={{ px: 0 }}>
             {filteredMenuItems.map((item) => {
               // next-intl pathname doesn't include locale prefix
               const isActive = pathname === item.path || pathname?.startsWith(item.path + '/');
               return (
-                <ListItem key={item.path} disablePadding>
+                <ListItem key={item.path} disablePadding sx={{ mb: 0.5 }}>
                   <ListItemButton
                     selected={isActive}
                     onClick={() => handleNavigation(item.path)}
+                    sx={(theme) => ({
+                      borderRadius: 2,
+                      py: 1.5,
+                      px: 2,
+                      '&.Mui-selected': {
+                        backgroundColor: theme.palette.mode === 'dark'
+                          ? 'rgba(212, 20, 90, 0.2)'
+                          : 'rgba(212, 20, 90, 0.1)',
+                        '&:hover': {
+                          backgroundColor: theme.palette.mode === 'dark'
+                            ? 'rgba(212, 20, 90, 0.25)'
+                            : 'rgba(212, 20, 90, 0.15)',
+                        },
+                        '& .MuiListItemIcon-root': {
+                          color: 'primary.main',
+                        },
+                        '& .MuiListItemText-primary': {
+                          color: 'primary.main',
+                          fontWeight: 600,
+                        },
+                      },
+                      '&:hover': {
+                        backgroundColor: theme.palette.mode === 'dark'
+                          ? 'rgba(255, 255, 255, 0.05)'
+                          : 'rgba(0, 0, 0, 0.04)',
+                      },
+                    })}
                   >
-                    <ListItemIcon>{item.icon}</ListItemIcon>
-                    <ListItemText primary={item.label} />
+                    <ListItemIcon 
+                      sx={{ 
+                        color: isActive ? 'primary.main' : 'text.secondary',
+                        minWidth: 48,
+                      }}
+                    >
+                      {item.icon}
+                    </ListItemIcon>
+                    <ListItemText 
+                      primary={item.label}
+                      primaryTypographyProps={{
+                        fontWeight: isActive ? 600 : 500,
+                      }}
+                    />
                   </ListItemButton>
                 </ListItem>
               );

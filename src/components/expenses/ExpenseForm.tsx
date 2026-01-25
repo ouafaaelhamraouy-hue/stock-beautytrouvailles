@@ -69,7 +69,14 @@ export function ExpenseForm({
     setValue,
   } = useForm<ExpenseFormData & { shipmentId?: string }>({
     resolver: zodResolver(expenseSchema),
-    defaultValues: initialData || {
+    defaultValues: initialData ? {
+      date: new Date(initialData.date),
+      amountEUR: initialData.amountEUR,
+      amountDH: initialData.amountDH,
+      description: initialData.description,
+      type: initialData.type as 'OPERATIONAL' | 'MARKETING' | 'UTILITIES' | 'OTHER',
+      shipmentId: initialData.shipmentId || undefined,
+    } : {
       date: new Date(),
       amountEUR: 0,
       amountDH: 0,
@@ -193,7 +200,7 @@ export function ExpenseForm({
                     type="number"
                     inputProps={{ step: '0.01', min: 0 }}
                     error={!!errors.amountDH}
-                    helperText={errors.amountDH?.message || `Auto-calculated: ${expenseEUR * exchangeRate} DH`}
+                    helperText={errors.amountDH?.message || (amountEURValue ? `Auto-calculated: ${(amountEURValue * exchangeRate).toFixed(2)} DH` : '')}
                   />
                 </Grid>
                 <Grid item xs={12}>

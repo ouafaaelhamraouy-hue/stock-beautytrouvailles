@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   DataGrid,
   GridColDef,
@@ -21,25 +21,39 @@ import { ConfirmDialog } from '@/components/ui';
 import { CurrencyDisplay } from '@/components/ui';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { hasPermission } from '@/lib/permissions';
+import { useQuery } from '@tanstack/react-query';
 
-interface Product {
+import { Product } from '@/hooks/useProducts';
+
+interface ProductTableItem {
   id: string;
-  sku: string;
   name: string;
+  brand?: string | null;
+  brandId?: string | null;
   description?: string | null;
   category: {
     id: string;
     name: string;
   };
-  basePriceEUR: number;
-  basePriceDH: number;
-  totalStock: number;
-  totalSold: number;
+  purchaseSource: 'ACTION' | 'CARREFOUR' | 'PHARMACIE' | 'AMAZON_FR' | 'SEPHORA' | 'RITUALS' | 'NOCIBE' | 'LIDL' | 'OTHER';
+  purchasePriceEur?: number | null;
+  purchasePriceMad: number;
+  sellingPriceDh: number;
+  promoPriceDh?: number | null;
+  quantityReceived: number;
+  quantitySold: number;
+  currentStock: number;
+  reorderLevel: number;
   createdAt: string;
   updatedAt: string;
 }
 
 interface Category {
+  id: string;
+  name: string;
+}
+
+interface Brand {
   id: string;
   name: string;
 }
@@ -57,9 +71,46 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
   const [selectedRows, setSelectedRows] = useState<GridRowSelectionModel>([]);
   const [formOpen, setFormOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [productToEdit, setProductToEdit] = useState<Product | null>(null);
-  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [productToEdit, setProductToEdit] = useState<ProductTableItem | null>(null);
+  const [productToDelete, setProductToDelete] = useState<ProductTableItem | null>(null);
   const isAdmin = profile?.role === 'ADMIN';
+  
+  // Transform products to table format
+  const tableProducts: ProductTableItem[] = products.map(p => ({
+    id: p.id,
+    name: p.name,
+    brand: p.brand,
+    brandId: null,
+    description: null,
+    category: {
+      id: p.categoryId,
+      name: p.category,
+    },
+    purchaseSource: p.purchaseSource,
+    purchasePriceEur: p.purchasePriceEur,
+    purchasePriceMad: p.purchasePriceMad,
+    sellingPriceDh: p.sellingPriceDh,
+    promoPriceDh: p.promoPriceDh,
+    quantityReceived: p.quantityReceived,
+    quantitySold: p.quantitySold,
+    currentStock: p.currentStock,
+    reorderLevel: p.reorderLevel,
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
+  }));
+
+  // Fetch brands
+  const { data: brandsData } = useQuery({
+    queryKey: ['brands'],
+    queryFn: async () => {
+      const response = await fetch('/api/brands');
+      if (!response.ok) throw new Error('Failed to fetch brands');
+      const data = await response.json();
+      return data.brands || [];
+    },
+  });
+
+  const brands: Brand[] = brandsData || [];
 
   const handleCreate = () => {
     setProductToEdit(null);
@@ -67,12 +118,56 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
   };
 
   const handleEdit = (product: Product) => {
-    setProductToEdit(product);
+    const tableProduct: ProductTableItem = {
+      id: product.id,
+      name: product.name,
+      brand: product.brand,
+      brandId: null,
+      description: null,
+      category: {
+        id: product.categoryId,
+        name: product.category,
+      },
+      purchaseSource: product.purchaseSource,
+      purchasePriceEur: product.purchasePriceEur,
+      purchasePriceMad: product.purchasePriceMad,
+      sellingPriceDh: product.sellingPriceDh,
+      promoPriceDh: product.promoPriceDh,
+      quantityReceived: product.quantityReceived,
+      quantitySold: product.quantitySold,
+      currentStock: product.currentStock,
+      reorderLevel: product.reorderLevel,
+      createdAt: product.createdAt,
+      updatedAt: product.updatedAt,
+    };
+    setProductToEdit(tableProduct);
     setFormOpen(true);
   };
 
   const handleDelete = (product: Product) => {
-    setProductToDelete(product);
+    const tableProduct: ProductTableItem = {
+      id: product.id,
+      name: product.name,
+      brand: product.brand,
+      brandId: null,
+      description: null,
+      category: {
+        id: product.categoryId,
+        name: product.category,
+      },
+      purchaseSource: product.purchaseSource,
+      purchasePriceEur: product.purchasePriceEur,
+      purchasePriceMad: product.purchasePriceMad,
+      sellingPriceDh: product.sellingPriceDh,
+      promoPriceDh: product.promoPriceDh,
+      quantityReceived: product.quantityReceived,
+      quantitySold: product.quantitySold,
+      currentStock: product.currentStock,
+      reorderLevel: product.reorderLevel,
+      createdAt: product.createdAt,
+      updatedAt: product.updatedAt,
+    };
+    setProductToDelete(tableProduct);
     setDeleteDialogOpen(true);
   };
 
@@ -117,7 +212,7 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
 
   const handleFormSubmit = async (data: any) => {
     const url = productToEdit ? `/api/products/${productToEdit.id}` : '/api/products';
-    const method = productToEdit ? 'PUT' : 'POST';
+    const method = productToEdit ? 'PATCH' : 'POST';
 
     const response = await fetch(url, {
       method,
@@ -142,13 +237,17 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
     }
 
     const csvData = products.map((p) => ({
-      SKU: p.sku,
       Name: p.name,
+      Brand: p.brand || '',
       Category: p.category.name,
-      'Base Price (EUR)': p.basePriceEUR,
-      'Base Price (DH)': p.basePriceDH,
-      'Total Stock': p.totalStock,
-      'Total Sold': p.totalSold,
+      Source: p.purchaseSource,
+      'PA (EUR)': p.purchasePriceEur || '',
+      'PA (MAD)': p.purchasePriceMad,
+      'PV (DH)': p.sellingPriceDh,
+      'Promo (DH)': p.promoPriceDh || '',
+      'Quantity Received': p.quantityReceived,
+      'Quantity Sold': p.quantitySold,
+      'Current Stock': p.currentStock,
     }));
 
     const csv = [
@@ -176,14 +275,18 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
 
     try {
       const excelData = products.map((p) => ({
-        SKU: p.sku,
         Name: p.name,
-        Description: p.description || '',
-        Category: p.category.name,
-        'Base Price (EUR)': p.basePriceEUR,
-        'Base Price (DH)': p.basePriceDH,
-        'Total Stock': p.totalStock,
-        'Total Sold': p.totalSold,
+        Brand: p.brand || '',
+        Category: p.category,
+        Source: p.purchaseSource,
+        'PA (EUR)': p.purchasePriceEur || '',
+        'PA (MAD)': p.purchasePriceMad,
+        'PV (DH)': p.sellingPriceDh,
+        'Promo (DH)': p.promoPriceDh || '',
+        'Quantity Received': p.quantityReceived,
+        'Quantity Sold': p.quantitySold,
+        'Current Stock': p.currentStock,
+        'Reorder Level': p.reorderLevel,
         'Created At': new Date(p.createdAt).toLocaleDateString(),
       }));
 
@@ -198,46 +301,105 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
     }
   };
 
-  const columns: GridColDef[] = [
-    { field: 'sku', headerName: 'SKU', width: 120, flex: 0 },
-    { field: 'name', headerName: 'Name', width: 200, flex: 1 },
+  const PURCHASE_SOURCE_LABELS: Record<string, string> = {
+    ACTION: 'Action',
+    RITUALS: 'Rituals',
+    NOCIBE: 'Nocibé',
+    LIDL: 'Lidl',
+    CARREFOUR: 'Carrefour',
+    PHARMACIE: 'Pharmacie',
+    AMAZON_FR: 'Amazon FR',
+    SEPHORA: 'Sephora',
+    OTHER: 'Autre',
+  };
+
+  const columns: GridColDef<ProductTableItem>[] = [
+    { field: 'name', headerName: 'Produit', width: 200, flex: 1 },
+    {
+      field: 'brand',
+      headerName: 'Marque',
+      width: 120,
+      valueGetter: (value) => value || '-',
+    },
     {
       field: 'category',
-      headerName: 'Category',
+      headerName: 'Catégorie',
       width: 150,
       valueGetter: (value, row) => row.category.name,
     },
     {
-      field: 'basePriceEUR',
-      headerName: 'Price (EUR)',
+      field: 'purchaseSource',
+      headerName: 'Source',
       width: 120,
       renderCell: (params) => (
-        <CurrencyDisplay amount={params.value} currency="EUR" variant="body2" />
+        <Chip
+          label={PURCHASE_SOURCE_LABELS[params.value] || params.value}
+          size="small"
+          variant="outlined"
+        />
       ),
     },
     {
-      field: 'basePriceDH',
-      headerName: 'Price (DH)',
-      width: 120,
+      field: 'purchasePriceEur',
+      headerName: 'PA (EUR)',
+      width: 100,
+      renderCell: (params) => (
+        params.value ? (
+          <CurrencyDisplay amount={params.value} currency="EUR" variant="body2" />
+        ) : (
+          <span style={{ color: '#999' }}>-</span>
+        )
+      ),
+    },
+    {
+      field: 'purchasePriceMad',
+      headerName: 'PA (MAD)',
+      width: 100,
       renderCell: (params) => (
         <CurrencyDisplay amount={params.value} currency="DH" variant="body2" />
       ),
     },
     {
-      field: 'totalStock',
-      headerName: 'Stock',
+      field: 'sellingPriceDh',
+      headerName: 'PV (DH)',
       width: 100,
       renderCell: (params) => (
-        <Chip
-          label={params.value}
-          color={params.value > 0 ? 'success' : 'default'}
-          size="small"
-        />
+        <CurrencyDisplay amount={params.value} currency="DH" variant="body2" />
       ),
     },
     {
-      field: 'totalSold',
-      headerName: 'Sold',
+      field: 'promoPriceDh',
+      headerName: 'Promo (DH)',
+      width: 110,
+      renderCell: (params) => (
+        params.value ? (
+          <CurrencyDisplay amount={params.value} currency="DH" variant="body2" />
+        ) : (
+          <span style={{ color: '#999' }}>-</span>
+        )
+      ),
+    },
+    {
+      field: 'currentStock',
+      headerName: 'Stock',
+      width: 100,
+      renderCell: (params) => {
+        const stock = params.value as number;
+        const product = params.row as Product;
+        const isLow = stock <= product.reorderLevel;
+        const isOut = stock === 0;
+        return (
+          <Chip
+            label={stock}
+            color={isOut ? 'error' : isLow ? 'warning' : 'success'}
+            size="small"
+          />
+        );
+      },
+    },
+    {
+      field: 'quantitySold',
+      headerName: 'Vendu',
       width: 100,
     },
     {
@@ -311,7 +473,7 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
       )}
 
       <DataGrid
-        rows={products}
+        rows={tableProducts}
         columns={columns}
         checkboxSelection={isAdmin}
         rowSelectionModel={selectedRows}
@@ -372,13 +534,27 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
           setProductToEdit(null);
         }}
         onSubmit={handleFormSubmit}
-        initialData={productToEdit || undefined}
+        initialData={productToEdit ? {
+          id: productToEdit.id,
+          name: productToEdit.name,
+          brandId: productToEdit.brandId || null,
+          description: productToEdit.description,
+          categoryId: productToEdit.category.id,
+          purchaseSource: productToEdit.purchaseSource,
+          purchasePriceEur: productToEdit.purchasePriceEur,
+          purchasePriceMad: productToEdit.purchasePriceMad,
+          sellingPriceDh: productToEdit.sellingPriceDh,
+          promoPriceDh: productToEdit.promoPriceDh,
+          quantityReceived: productToEdit.quantityReceived,
+          reorderLevel: productToEdit.reorderLevel,
+        } : undefined}
         categories={categories}
+        brands={brands}
       />
 
       <ConfirmDialog
         open={deleteDialogOpen}
-        onClose={() => {
+        onCancel={() => {
           setDeleteDialogOpen(false);
           setProductToDelete(null);
         }}

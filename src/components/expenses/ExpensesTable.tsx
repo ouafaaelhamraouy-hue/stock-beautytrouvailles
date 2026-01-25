@@ -297,7 +297,7 @@ export function ExpensesTable({ expenses, shipments, onRefresh }: ExpensesTableP
 
       <ConfirmDialog
         open={deleteDialogOpen}
-        onClose={() => {
+        onCancel={() => {
           setDeleteDialogOpen(false);
           setExpenseToDelete(null);
         }}

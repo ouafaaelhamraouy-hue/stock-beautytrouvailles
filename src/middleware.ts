@@ -17,8 +17,8 @@ export async function middleware(request: NextRequest) {
     pathname.includes(route)
   );
   
-  // Skip auth check for API routes and static files
-  if (pathname.startsWith('/api/') || pathname.startsWith('/_next/') || pathname.includes('.')) {
+  // Skip auth check for API routes, auth callback, and static files
+  if (pathname.startsWith('/api/') || pathname.startsWith('/auth/') || pathname.startsWith('/_next/') || pathname.includes('.')) {
     return intlMiddleware(request);
   }
   

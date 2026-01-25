@@ -36,7 +36,7 @@ export default function DashboardLayout({
       <Topbar />
 
       {/* Sidebar - Desktop only */}
-      <Sidebar />
+      <Sidebar drawerWidth={DRAWER_WIDTH} />
 
       {/* Main Content */}
       <Box

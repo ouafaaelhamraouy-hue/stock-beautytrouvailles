@@ -175,7 +175,7 @@ export function InventoryTable({ items }: InventoryTableProps) {
       headerName: tInventory('stockPercentage'),
       width: 100,
       align: 'center',
-      valueGetter: (value) => `${value.toFixed(1)}%`,
+      valueGetter: (value: number) => `${value.toFixed(1)}%`,
     },
     {
       field: 'status',
