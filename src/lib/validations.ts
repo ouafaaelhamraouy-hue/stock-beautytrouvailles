@@ -25,13 +25,22 @@ export const categorySchema = z.object({
 
 export type CategoryFormData = z.infer<typeof categorySchema>;
 
-// Supplier validations
+// Supplier validations (deprecated - use brands instead)
 export const supplierSchema = z.object({
   name: z.string().min(1, 'Name is required').max(200, 'Name must be less than 200 characters'),
   contactInfo: z.string().max(500, 'Contact info must be less than 500 characters').optional(),
 });
 
 export type SupplierFormData = z.infer<typeof supplierSchema>;
+
+// Brand validations
+export const brandSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(200, 'Name must be less than 200 characters'),
+  country: z.string().max(100, 'Country must be less than 100 characters').optional(),
+  logoUrl: z.string().url('Must be a valid URL').optional().nullable(),
+});
+
+export type BrandFormData = z.infer<typeof brandSchema>;
 
 // Sale validations
 export const saleSchema = z.object({
@@ -40,10 +49,10 @@ export const saleSchema = z.object({
   pricePerUnit: z.number().min(0, 'Price must be positive'),
   isPromo: z.boolean().default(false),
   saleDate: z.date().default(new Date()),
+  notes: z.string().max(500, 'Notes must be less than 500 characters').optional().nullable(),
 }).refine(
-  (data) => {
-    // totalAmount must equal quantity * pricePerUnit
-    const expectedTotal = data.quantity * data.pricePerUnit;
+  () => {
+    // totalAmount must equal quantity * pricePerUnit (validated at API level)
     return true; // This will be validated at API level
   },
   { message: 'Total amount must equal quantity × price per unit' }
@@ -54,7 +63,7 @@ export type SaleFormData = z.infer<typeof saleSchema>;
 // Shipment validations
 export const shipmentSchema = z.object({
   reference: z.string().min(1, 'Reference is required').max(100, 'Reference must be less than 100 characters'),
-  supplierId: z.string().min(1, 'Supplier is required'),
+  source: z.enum(['ACTION', 'RITUALS', 'NOCIBE', 'LIDL', 'CARREFOUR', 'PHARMACIE', 'AMAZON_FR', 'SEPHORA', 'OTHER']),
   arrivalDate: z.date().optional(),
   status: z.enum(['PENDING', 'IN_TRANSIT', 'ARRIVED', 'PROCESSED']).default('PENDING'),
   exchangeRate: z.number().min(0.01, 'Exchange rate must be positive'),
@@ -80,8 +89,9 @@ export const expenseSchema = z.object({
   amountEUR: z.number().min(0, 'Amount must be positive'),
   amountDH: z.number().min(0, 'Amount must be positive'),
   description: z.string().min(1, 'Description is required').max(500, 'Description must be less than 500 characters'),
-  type: z.enum(['OPERATIONAL', 'MARKETING', 'UTILITIES', 'OTHER']),
-  shipmentId: z.string().optional().nullable(),
+  type: z.enum(['OPERATIONAL', 'MARKETING', 'UTILITIES', 'PACKAGING', 'SHIPPING', 'ADS', 'OTHER']),
+  shipmentId: z.string().optional().nullable(), // Backward compatibility
+  arrivageId: z.string().optional().nullable(),
 });
 
 export type ExpenseFormData = z.infer<typeof expenseSchema>;

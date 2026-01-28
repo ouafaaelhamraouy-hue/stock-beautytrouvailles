@@ -3,7 +3,6 @@
 import {
   Box,
   Typography,
-  Chip,
 } from '@mui/material';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
@@ -16,11 +15,8 @@ import { PurchaseSource } from '@prisma/client';
 interface ShipmentHeaderProps {
   reference: string;
   shipDate: string | null;
-  purchaseDate: string | null;
   source: PurchaseSource;
   totalProducts: number;
-  totalStock: number;
-  totalSold: number;
   totalValue: number;
 }
 
@@ -39,11 +35,8 @@ const sourceLabels: Record<PurchaseSource, string> = {
 export function ShipmentHeader({
   reference,
   shipDate,
-  purchaseDate,
   source,
   totalProducts,
-  totalStock,
-  totalSold,
   totalValue,
 }: ShipmentHeaderProps) {
   const formatDate = (dateStr: string | null) => {

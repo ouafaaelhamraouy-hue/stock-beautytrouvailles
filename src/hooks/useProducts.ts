@@ -68,8 +68,9 @@ export function useProducts(params: ProductsParams = {}) {
   return useQuery({
     queryKey: ['products', params],
     queryFn: () => fetchProducts(params),
-    staleTime: 1000 * 60 * 5, // 5 minutes - products don't change that often
+    staleTime: 1000 * 60 * 2, // 2 minutes - products don't change that often
     gcTime: 1000 * 60 * 15, // 15 minutes cache
+    keepPreviousData: true, // Prevent UI flicker when filters change
   });
 }
 
@@ -111,13 +112,13 @@ export function useUpdateProduct() {
       const previous = queryClient.getQueryData(['products', newData.id]);
 
       // Optimistically update
-      queryClient.setQueryData(['products', newData.id], (old: any) => ({
+      queryClient.setQueryData(['products', newData.id], (old: Product | undefined) => ({
         ...old,
         ...newData,
       }));
 
       // Also update in list
-      queryClient.setQueriesData({ queryKey: ['products'] }, (old: any) => {
+      queryClient.setQueriesData({ queryKey: ['products'] }, (old: ProductsResponse | undefined) => {
         if (!old?.products) return old;
         return {
           ...old,

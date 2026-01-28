@@ -42,7 +42,7 @@ interface Product {
 interface SaleFormProps {
   open: boolean;
   onClose: () => void;
-  onSubmit: (data: any) => Promise<void>;
+  onSubmit: (data: SaleFormData) => Promise<void>;
   initialData?: {
     id: string;
     productId: string;
@@ -132,7 +132,7 @@ export function SaleForm({
     }
   }, [selectedProduct, quantity, setValue]);
 
-  const handleFormSubmit = async (data: any) => {
+  const handleFormSubmit = async (data: SaleFormData) => {
     if (selectedProduct && data.quantity > selectedProduct.availableStock) {
       toast.error(tSales('insufficientStock'));
       return;
@@ -148,8 +148,8 @@ export function SaleForm({
       setSelectedProductId('');
       setSaleDate(new Date());
       onClose();
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to save sale');
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save sale');
       console.error(error);
     }
   };

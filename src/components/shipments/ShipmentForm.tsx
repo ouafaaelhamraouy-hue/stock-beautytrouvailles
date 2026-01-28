@@ -20,19 +20,26 @@ import { shipmentSchema, type ShipmentFormData } from '@/lib/validations';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
-interface Supplier {
-  id: string;
-  name: string;
-}
+const PURCHASE_SOURCES = [
+  { value: 'ACTION', label: 'Action' },
+  { value: 'RITUALS', label: 'Rituals' },
+  { value: 'NOCIBE', label: 'Nocibé' },
+  { value: 'LIDL', label: 'Lidl' },
+  { value: 'CARREFOUR', label: 'Carrefour' },
+  { value: 'PHARMACIE', label: 'Pharmacie' },
+  { value: 'AMAZON_FR', label: 'Amazon FR' },
+  { value: 'SEPHORA', label: 'Sephora' },
+  { value: 'OTHER', label: 'Other' },
+] as const;
 
 interface ShipmentFormProps {
   open: boolean;
   onClose: () => void;
-  onSubmit: (data: any) => Promise<void>;
+  onSubmit: (data: ShipmentFormData & { status: string }) => Promise<void>;
   initialData?: {
     id: string;
     reference: string;
-    supplierId: string;
+    source: string;
     arrivalDate?: string | null;
     status: string;
     exchangeRate: number;
@@ -40,7 +47,6 @@ interface ShipmentFormProps {
     customsCostEUR: number;
     packagingCostEUR: number;
   };
-  suppliers: Supplier[];
   loading?: boolean;
 }
 
@@ -49,7 +55,6 @@ export function ShipmentForm({
   onClose,
   onSubmit,
   initialData,
-  suppliers,
   loading = false,
 }: ShipmentFormProps) {
   const t = useTranslations('common');
@@ -61,15 +66,14 @@ export function ShipmentForm({
     handleSubmit,
     formState: { errors },
     reset,
-    watch,
   } = useForm<ShipmentFormData & { status: string }>({
     resolver: zodResolver(shipmentSchema),
     defaultValues: initialData || {
       reference: '',
-      supplierId: '',
+      source: 'OTHER',
       arrivalDate: undefined,
       status: 'PENDING',
-      exchangeRate: 10.5,
+      exchangeRate: 10.85,
       shippingCostEUR: 0,
       customsCostEUR: 0,
       packagingCostEUR: 0,
@@ -80,7 +84,7 @@ export function ShipmentForm({
     if (initialData) {
       reset({
         reference: initialData.reference,
-        supplierId: initialData.supplierId,
+        source: initialData.source || 'OTHER',
         arrivalDate: initialData.arrivalDate ? new Date(initialData.arrivalDate) : undefined,
         status: initialData.status,
         exchangeRate: initialData.exchangeRate,
@@ -92,10 +96,10 @@ export function ShipmentForm({
     } else {
       reset({
         reference: '',
-        supplierId: '',
+        source: 'OTHER',
         arrivalDate: undefined,
         status: 'PENDING',
-        exchangeRate: 10.5,
+        exchangeRate: 10.85,
         shippingCostEUR: 0,
         customsCostEUR: 0,
         packagingCostEUR: 0,
@@ -104,7 +108,7 @@ export function ShipmentForm({
     }
   }, [initialData, reset]);
 
-  const handleFormSubmit = async (data: any) => {
+  const handleFormSubmit = async (data: ShipmentFormData & { status: string }) => {
     try {
       const submitData = {
         ...data,
@@ -114,8 +118,8 @@ export function ShipmentForm({
       reset();
       setArrivalDate(null);
       onClose();
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to save shipment');
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save shipment');
       console.error(error);
     }
   };
@@ -141,17 +145,17 @@ export function ShipmentForm({
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <TextField
-                    {...register('supplierId')}
-                    label={tShipments('supplier')}
+                    {...register('source')}
+                    label="Purchase Source"
                     fullWidth
                     required
                     select
-                    error={!!errors.supplierId}
-                    helperText={errors.supplierId?.message}
+                    error={!!errors.source}
+                    helperText={errors.source?.message}
                   >
-                    {suppliers.map((supplier) => (
-                      <MenuItem key={supplier.id} value={supplier.id}>
-                        {supplier.name}
+                    {PURCHASE_SOURCES.map((source) => (
+                      <MenuItem key={source.value} value={source.value}>
+                        {source.label}
                       </MenuItem>
                     ))}
                   </TextField>

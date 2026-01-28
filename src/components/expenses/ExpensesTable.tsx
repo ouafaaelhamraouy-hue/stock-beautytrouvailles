@@ -7,7 +7,7 @@ import {
   GridActionsCellItem,
   GridToolbar,
 } from '@mui/x-data-grid';
-import { Box, Button, IconButton } from '@mui/material';
+import { Box, Button } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
@@ -18,15 +18,19 @@ import { ConfirmDialog } from '@/components/ui';
 import { CurrencyDisplay } from '@/components/ui';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { hasPermission } from '@/lib/permissions';
+import type { ExpenseFormData } from '@/lib/validations';
+
+type DecimalLike = { toNumber: () => number };
 
 interface Expense {
   id: string;
   date: string;
-  amountEUR: number;
-  amountDH: number;
+  amountEUR: number | DecimalLike; // Can be Decimal
+  amountDH: number | DecimalLike; // Can be Decimal
   description: string;
-  type: 'OPERATIONAL' | 'MARKETING' | 'UTILITIES' | 'OTHER';
+  type: 'OPERATIONAL' | 'MARKETING' | 'UTILITIES' | 'PACKAGING' | 'SHIPPING' | 'ADS' | 'OTHER';
   shipmentId?: string | null;
+  arrivageId?: string | null;
   shipment?: {
     id: string;
     reference: string;
@@ -95,12 +99,12 @@ export function ExpensesTable({ expenses, shipments, onRefresh }: ExpensesTableP
       setDeleteDialogOpen(false);
       setExpenseToDelete(null);
       onRefresh();
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to delete expense');
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : 'Failed to delete expense');
     }
   };
 
-  const handleFormSubmit = async (data: any) => {
+  const handleFormSubmit = async (data: ExpenseFormData) => {
     const url = expenseToEdit ? `/api/expenses/${expenseToEdit.id}` : '/api/expenses';
     const method = expenseToEdit ? 'PUT' : 'POST';
 
@@ -126,6 +130,9 @@ export function ExpensesTable({ expenses, shipments, onRefresh }: ExpensesTableP
       OPERATIONAL: tExpenses('operational'),
       MARKETING: tExpenses('marketing'),
       UTILITIES: tExpenses('utilities'),
+      PACKAGING: tExpenses('packaging'),
+      SHIPPING: tExpenses('shipping'),
+      ADS: tExpenses('ads'),
       OTHER: tExpenses('other'),
     };
     return labels[type] || type;
@@ -154,17 +161,25 @@ export function ExpensesTable({ expenses, shipments, onRefresh }: ExpensesTableP
       field: 'amountEUR',
       headerName: `${tExpenses('amount')} (EUR)`,
       width: 150,
-      renderCell: (params) => (
-        <CurrencyDisplay amount={params.value} currency="EUR" variant="body2" />
-      ),
+      renderCell: (params) => {
+        // Handle Decimal type
+        const amount = typeof params.value === 'object' && 'toNumber' in params.value
+          ? params.value.toNumber()
+          : params.value || 0;
+        return <CurrencyDisplay amount={amount} currency="EUR" variant="body2" />;
+      },
     },
     {
       field: 'amountDH',
       headerName: `${tExpenses('amount')} (DH)`,
       width: 150,
-      renderCell: (params) => (
-        <CurrencyDisplay amount={params.value} currency="DH" variant="body2" />
-      ),
+      renderCell: (params) => {
+        // Handle Decimal type
+        const amount = typeof params.value === 'object' && 'toNumber' in params.value
+          ? params.value.toNumber()
+          : params.value || 0;
+        return <CurrencyDisplay amount={amount} currency="DH" variant="body2" />;
+      },
     },
     {
       field: 'shipment',

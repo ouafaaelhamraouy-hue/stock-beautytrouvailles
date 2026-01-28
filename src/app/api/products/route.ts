@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
+import { Prisma, PurchaseSource } from '@prisma/client';
 import { hasPermission } from '@/lib/permissions';
 import { calculateMargin, calculateNetMargin, calculateCurrentStock } from '@/lib/calculations';
 
@@ -33,13 +34,16 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const categoryId = searchParams.get('categoryId');
     const search = searchParams.get('search');
-    const source = searchParams.get('source') as any;
+    const sourceParam = searchParams.get('source');
+    const source = sourceParam && Object.values(PurchaseSource).includes(sourceParam as PurchaseSource)
+      ? (sourceParam as PurchaseSource)
+      : undefined;
     const stockFilter = searchParams.get('stock'); // 'low', 'out', 'ok'
     const page = parseInt(searchParams.get('page') || '1');
     const limit = Math.min(parseInt(searchParams.get('limit') || '25'), 100); // Max 100, default 25
 
     // Build where clause with stock filtering at database level
-    const where: any = {
+    const where: Prisma.ProductWhereInput = {
       isActive: true,
     };
     
@@ -190,13 +194,13 @@ export async function GET(request: Request) {
         totalPages: Math.ceil(filteredTotal / limit),
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching products:', error);
     return NextResponse.json(
       { 
         error: 'Internal server error',
-        message: error.message || 'Unknown error',
-        code: error.code || 'UNKNOWN',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        code: error instanceof Prisma.PrismaClientKnownRequestError ? error.code : 'UNKNOWN',
       },
       { status: 500 }
     );
@@ -314,9 +318,9 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json(product, { status: 201 });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating product:', error);
-    if (error.code === 'P2002') {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return NextResponse.json(
         { error: 'Product with this name already exists in this arrivage' },
         { status: 400 }

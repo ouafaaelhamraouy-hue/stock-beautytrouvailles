@@ -29,80 +29,92 @@ export async function GET(request: Request) {
 
     // Get query parameters
     const { searchParams } = new URL(request.url);
-    const shipmentId = searchParams.get('shipmentId');
+    const arrivageId = searchParams.get('arrivageId');
     const categoryId = searchParams.get('categoryId');
     const stockLevel = searchParams.get('stockLevel'); // 'all', 'in_stock', 'low_stock', 'out_of_stock'
     const productId = searchParams.get('productId');
+    const search = searchParams.get('search');
 
-    // Build where clause for shipment items
-    const where: any = {};
-    if (shipmentId) {
-      where.shipmentId = shipmentId;
+    // Build where clause for products
+    const where: Record<string, unknown> = {
+      isActive: true,
+    };
+
+    if (arrivageId) {
+      where.arrivageId = arrivageId;
     }
     if (productId) {
-      where.productId = productId;
+      where.id = productId;
+    }
+    if (categoryId) {
+      where.categoryId = categoryId;
+    }
+    if (search) {
+      where.name = {
+        contains: search,
+        mode: 'insensitive',
+      };
     }
 
-    // Get shipment items with products and categories
-    const shipmentItems = await prisma.shipmentItem.findMany({
+    // Get products with their relations
+    const products = await prisma.product.findMany({
       where,
       include: {
-        product: {
-          include: {
-            category: true,
-          },
-        },
-        shipment: {
-          include: {
-            supplier: true,
-          },
-        },
+        category: true,
+        brand: true,
+        arrivage: true,
       },
       orderBy: {
         createdAt: 'desc',
       },
     });
 
-    // Filter by category if provided
-    let filteredItems = shipmentItems;
-    if (categoryId) {
-      filteredItems = shipmentItems.filter(
-        (item) => item.product.categoryId === categoryId
-      );
-    }
-
     // Calculate inventory status and filter by stock level
-    const inventoryItems = filteredItems.map((item) => {
-      const quantityRemaining = item.quantityRemaining;
-      const quantitySold = item.quantitySold;
-      const totalQuantity = item.quantity;
-      const stockPercentage = totalQuantity > 0 
-        ? (quantityRemaining / totalQuantity) * 100 
+    const inventoryItems = products.map((product) => {
+      const quantityReceived = product.quantityReceived;
+      const quantitySold = product.quantitySold;
+      const quantityRemaining = quantityReceived - quantitySold;
+      const stockPercentage = quantityReceived > 0
+        ? (quantityRemaining / quantityReceived) * 100
         : 0;
 
       // Determine stock status
       let status: 'in_stock' | 'low_stock' | 'out_of_stock';
-      if (quantityRemaining === 0) {
+      if (quantityRemaining <= 0) {
         status = 'out_of_stock';
-      } else if (stockPercentage <= 20 || quantityRemaining <= 5) {
+      } else if (quantityRemaining <= product.reorderLevel) {
         status = 'low_stock';
       } else {
         status = 'in_stock';
       }
 
       return {
-        id: item.id,
-        product: item.product,
-        shipment: item.shipment,
-        quantity: totalQuantity,
+        id: product.id,
+        product: {
+          id: product.id,
+          name: product.name,
+          categoryId: product.categoryId,
+          brandId: product.brandId,
+          imageUrl: product.imageUrl,
+          purchaseSource: product.purchaseSource,
+          purchasePriceEur: product.purchasePriceEur ? Number(product.purchasePriceEur) : null,
+          purchasePriceMad: Number(product.purchasePriceMad),
+          sellingPriceDh: Number(product.sellingPriceDh),
+          promoPriceDh: product.promoPriceDh ? Number(product.promoPriceDh) : null,
+          reorderLevel: product.reorderLevel,
+          category: product.category,
+          brand: product.brand,
+        },
+        arrivage: product.arrivage,
+        quantity: quantityReceived,
         quantitySold,
         quantityRemaining,
         stockPercentage,
         status,
-        costPerUnitEUR: item.costPerUnitEUR,
-        costPerUnitDH: item.costPerUnitDH,
-        createdAt: item.createdAt,
-        updatedAt: item.updatedAt,
+        costPerUnitMad: Number(product.purchasePriceMad),
+        costPerUnitEur: product.purchasePriceEur ? Number(product.purchasePriceEur) : null,
+        createdAt: product.createdAt,
+        updatedAt: product.updatedAt,
       };
     });
 

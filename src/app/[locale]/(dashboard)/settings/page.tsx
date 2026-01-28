@@ -13,12 +13,12 @@ import {
   CircularProgress,
   Divider,
 } from '@mui/material';
-import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import SaveIcon from '@mui/icons-material/Save';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { hasPermission } from '@/lib/permissions';
+import { RouteGuard } from '@/components/auth/RouteGuard';
 
 interface Settings {
   packagingCostPlastic: number;
@@ -39,7 +39,6 @@ const DEFAULT_SETTINGS: Settings = {
 };
 
 export default function SettingsPage() {
-  const t = useTranslations('common');
   const { profile } = useUserProfile();
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
@@ -58,7 +57,12 @@ export default function SettingsPage() {
     if (total !== settings.packagingCostTotal) {
       setSettings(prev => ({ ...prev, packagingCostTotal: parseFloat(total.toFixed(2)) }));
     }
-  }, [settings.packagingCostPlastic, settings.packagingCostCarton, settings.packagingCostStickers]);
+  }, [
+    settings.packagingCostPlastic,
+    settings.packagingCostCarton,
+    settings.packagingCostStickers,
+    settings.packagingCostTotal,
+  ]);
 
   const fetchSettings = async () => {
     try {
@@ -67,8 +71,8 @@ export default function SettingsPage() {
       if (!response.ok) throw new Error('Failed to fetch settings');
       const data = await response.json();
       setSettings(data.settings);
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to load settings');
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : 'Failed to load settings');
       console.error('Error fetching settings:', error);
     } finally {
       setLoading(false);
@@ -97,8 +101,8 @@ export default function SettingsPage() {
       const data = await response.json();
       setSettings(data.settings);
       toast.success('Settings saved successfully');
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to save settings');
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save settings');
       console.error('Error saving settings:', error);
     } finally {
       setSaving(false);
@@ -124,6 +128,7 @@ export default function SettingsPage() {
   }
 
   return (
+    <RouteGuard requireAdmin>
     <Box sx={{ maxWidth: '900px', mx: 'auto' }}>
       {/* Header */}
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 6 }}>
@@ -169,7 +174,7 @@ export default function SettingsPage() {
 
       {!canEdit && (
         <Alert severity="info" sx={{ mb: 4 }}>
-          Vous n'avez pas la permission de modifier ces paramètres. Contactez un administrateur.
+          Vous n&apos;avez pas la permission de modifier ces paramètres. Contactez un administrateur.
         </Alert>
       )}
 
@@ -193,10 +198,10 @@ export default function SettingsPage() {
             color: 'text.primary',
           }}
         >
-          📦 Coûts d'emballage (DH)
+          📦 Coûts d&apos;emballage (DH)
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 4 }}>
-          Ces coûts sont ajoutés à chaque vente pour calculer la marge nette. Source: Feuille "Charges" Excel.
+          Ces coûts sont ajoutés à chaque vente pour calculer la marge nette. Source: Feuille &quot;Charges&quot; Excel.
         </Typography>
 
         <Grid container spacing={3}>
@@ -343,9 +348,10 @@ export default function SettingsPage() {
         </Grid>
 
         <Alert severity="info" sx={{ mt: 3 }}>
-          Ce taux est utilisé pour convertir les coûts EUR en DH lors de l'import des arrivages.
+          Ce taux est utilisé pour convertir les coûts EUR en DH lors de l&apos;import des arrivages.
         </Alert>
       </Paper>
     </Box>
+    </RouteGuard>
   );
 }

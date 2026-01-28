@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
@@ -66,8 +66,8 @@ export function CategoryForm({
       await onSubmit(data);
       reset();
       onClose();
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to save category');
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save category');
       console.error(error);
     }
   };

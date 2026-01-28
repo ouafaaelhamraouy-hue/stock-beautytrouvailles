@@ -16,7 +16,7 @@ async function main() {
   console.log('🌱 Seeding settings...');
 
   for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
-    const setting = await prisma.setting.upsert({
+    await prisma.setting.upsert({
       where: { key },
       update: { value },
       create: { key, value },

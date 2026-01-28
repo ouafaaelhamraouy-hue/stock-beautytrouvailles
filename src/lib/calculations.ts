@@ -180,3 +180,39 @@ export function calculateTotalRevenue(
     return total + (product.quantitySold * price);
   }, 0);
 }
+
+/**
+ * Calculate sale total amount
+ * Formula: quantity × pricePerUnit
+ */
+export function calculateSaleTotal(
+  quantity: number,
+  pricePerUnit: number
+): number {
+  return Number((quantity * pricePerUnit).toFixed(2));
+}
+
+/**
+ * Calculate shipment total cost in EUR
+ * Formula: shippingCostEUR + customsCostEUR + packagingCostEUR + itemsCostEUR
+ */
+export function calculateShipmentTotalEUR(
+  shippingCostEUR: number,
+  customsCostEUR: number,
+  packagingCostEUR: number,
+  itemsCostEUR: number
+): number {
+  return Number((shippingCostEUR + customsCostEUR + packagingCostEUR + itemsCostEUR).toFixed(2));
+}
+
+/**
+ * Calculate shipment total cost in DH
+ * Formula: totalCostEUR × exchangeRate
+ */
+export function calculateShipmentTotalDH(
+  totalCostEUR: number,
+  exchangeRate: number | Decimal
+): number {
+  const rate = typeof exchangeRate === 'number' ? exchangeRate : exchangeRate.toNumber();
+  return Number((totalCostEUR * rate).toFixed(2));
+}

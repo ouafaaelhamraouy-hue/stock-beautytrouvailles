@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
-import { calculateShipmentTotalEUR, calculateShipmentTotalDH } from '@/lib/calculations';
 
 export async function GET(
   request: Request,
@@ -28,66 +27,54 @@ export async function GET(
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
 
-    if (!hasPermission(userProfile.role, 'SHIPMENTS_READ')) {
+    if (!hasPermission(userProfile.role, 'ARRIVAGES_READ')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const shipment = await prisma.shipment.findUnique({
+    const arrivage = await prisma.arrivage.findUnique({
       where: { id },
       include: {
-        supplier: true,
-        items: {
+        products: {
           include: {
-            product: {
-              include: {
-                category: true,
-              },
-            },
+            category: true,
+            brand: true,
           },
         },
+        expenses: true,
       },
     });
 
-    if (!shipment) {
-      return NextResponse.json({ error: 'Shipment not found' }, { status: 404 });
+    if (!arrivage) {
+      return NextResponse.json({ error: 'Arrivage not found' }, { status: 404 });
     }
 
-    // Calculate totals and summary
-    const itemsCostEUR = shipment.items.reduce(
-      (sum, item) => sum + item.quantity * item.costPerUnitEUR,
-      0
-    );
+    // Format response
+    const shipment = {
+      id: arrivage.id,
+      reference: arrivage.reference,
+      purchaseDate: arrivage.purchaseDate,
+      shipDate: arrivage.shipDate,
+      receivedDate: arrivage.receivedDate,
+      status: arrivage.status,
+      source: arrivage.source,
+      invoices: arrivage.invoices,
+      exchangeRate: arrivage.exchangeRate,
+      totalCostEur: arrivage.totalCostEur,
+      shippingCostEur: arrivage.shippingCostEur,
+      packagingCostEur: arrivage.packagingCostEur,
+      totalCostDh: arrivage.totalCostDh,
+      productCount: arrivage.productCount,
+      totalUnits: arrivage.totalUnits,
+      carrier: arrivage.carrier,
+      trackingNumber: arrivage.trackingNumber,
+      notes: arrivage.notes,
+      products: arrivage.products,
+      expenses: arrivage.expenses,
+      createdAt: arrivage.createdAt,
+      updatedAt: arrivage.updatedAt,
+    };
 
-    const totalCostEUR = calculateShipmentTotalEUR(
-      shipment.shippingCostEUR,
-      shipment.customsCostEUR,
-      shipment.packagingCostEUR,
-      itemsCostEUR
-    );
-
-    const totalCostDH = calculateShipmentTotalDH(totalCostEUR, shipment.exchangeRate);
-
-    // Calculate revenue from sales (TODO: implement when sales are linked to shipment items)
-    const totalRevenueEUR = 0;
-    const totalRevenueDH = totalRevenueEUR * shipment.exchangeRate;
-
-    const profitEUR = totalRevenueEUR - totalCostEUR;
-    const profitDH = totalRevenueDH - totalCostDH;
-    const marginPercent = totalCostEUR > 0 ? ((profitEUR / totalCostEUR) * 100) : 0;
-
-    return NextResponse.json({
-      ...shipment,
-      calculatedTotals: {
-        itemsCostEUR,
-        totalCostEUR,
-        totalCostDH,
-        totalRevenueEUR,
-        totalRevenueDH,
-        profitEUR,
-        profitDH,
-        marginPercent,
-      },
-    });
+    return NextResponse.json(shipment);
   } catch (error) {
     console.error('Error fetching shipment:', error);
     return NextResponse.json(
@@ -121,67 +108,94 @@ export async function PUT(
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
 
-    if (!hasPermission(userProfile.role, 'SHIPMENTS_UPDATE')) {
+    if (!hasPermission(userProfile.role, 'ARRIVAGES_UPDATE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     const body = await request.json();
-    const existingShipment = await prisma.shipment.findUnique({
+    const existingArrivage = await prisma.arrivage.findUnique({
       where: { id },
-      include: { items: true },
+      include: { products: true },
     });
 
-    if (!existingShipment) {
-      return NextResponse.json({ error: 'Shipment not found' }, { status: 404 });
+    if (!existingArrivage) {
+      return NextResponse.json({ error: 'Arrivage not found' }, { status: 404 });
     }
 
-    // Calculate new totals if costs changed
-    const shippingCostEUR = body.shippingCostEUR !== undefined ? body.shippingCostEUR : existingShipment.shippingCostEUR;
-    const customsCostEUR = body.customsCostEUR !== undefined ? body.customsCostEUR : existingShipment.customsCostEUR;
-    const packagingCostEUR = body.packagingCostEUR !== undefined ? body.packagingCostEUR : existingShipment.packagingCostEUR;
-    const exchangeRate = body.exchangeRate !== undefined ? body.exchangeRate : existingShipment.exchangeRate;
-
-    const itemsCostEUR = existingShipment.items.reduce(
-      (sum, item) => sum + item.quantity * item.costPerUnitEUR,
-      0
-    );
-
-    const totalCostEUR = calculateShipmentTotalEUR(
-      shippingCostEUR,
-      customsCostEUR,
-      packagingCostEUR,
-      itemsCostEUR
-    );
-    const totalCostDH = calculateShipmentTotalDH(totalCostEUR, exchangeRate);
-
-    // Update shipment
-    const shipment = await prisma.shipment.update({
+    // Update arrivage
+    const arrivage = await prisma.arrivage.update({
       where: { id },
       data: {
-        reference: body.reference || existingShipment.reference,
-        supplierId: body.supplierId || existingShipment.supplierId,
-        arrivalDate: body.arrivalDate !== undefined ? (body.arrivalDate ? new Date(body.arrivalDate) : null) : existingShipment.arrivalDate,
-        status: body.status || existingShipment.status,
-        exchangeRate,
-        shippingCostEUR,
-        customsCostEUR,
-        packagingCostEUR,
-        totalCostEUR,
-        totalCostDH,
+        reference: body.reference || existingArrivage.reference,
+        purchaseDate: body.purchaseDate !== undefined 
+          ? (body.purchaseDate ? new Date(body.purchaseDate) : null) 
+          : existingArrivage.purchaseDate,
+        shipDate: body.shipDate !== undefined 
+          ? (body.shipDate ? new Date(body.shipDate) : null) 
+          : existingArrivage.shipDate,
+        receivedDate: body.receivedDate !== undefined 
+          ? (body.receivedDate ? new Date(body.receivedDate) : null) 
+          : existingArrivage.receivedDate,
+        status: body.status || existingArrivage.status,
+        source: body.source || existingArrivage.source,
+        invoices: body.invoices || existingArrivage.invoices,
+        exchangeRate: body.exchangeRate !== undefined 
+          ? body.exchangeRate 
+          : existingArrivage.exchangeRate,
+        shippingCostEur: body.shippingCostEur !== undefined 
+          ? body.shippingCostEur 
+          : existingArrivage.shippingCostEur,
+        packagingCostEur: body.packagingCostEur !== undefined 
+          ? body.packagingCostEur 
+          : existingArrivage.packagingCostEur,
+        totalCostEur: body.totalCostEur !== undefined 
+          ? body.totalCostEur 
+          : existingArrivage.totalCostEur,
+        totalCostDh: body.totalCostDh !== undefined 
+          ? body.totalCostDh 
+          : existingArrivage.totalCostDh,
+        carrier: body.carrier !== undefined ? body.carrier : existingArrivage.carrier,
+        trackingNumber: body.trackingNumber !== undefined 
+          ? body.trackingNumber 
+          : existingArrivage.trackingNumber,
+        notes: body.notes !== undefined ? body.notes : existingArrivage.notes,
       },
       include: {
-        supplier: true,
-        items: {
+        products: {
           include: {
-            product: {
-              include: {
-                category: true,
-              },
-            },
+            category: true,
+            brand: true,
           },
         },
+        expenses: true,
       },
     });
+
+    // Format response
+    const shipment = {
+      id: arrivage.id,
+      reference: arrivage.reference,
+      purchaseDate: arrivage.purchaseDate,
+      shipDate: arrivage.shipDate,
+      receivedDate: arrivage.receivedDate,
+      status: arrivage.status,
+      source: arrivage.source,
+      invoices: arrivage.invoices,
+      exchangeRate: arrivage.exchangeRate,
+      totalCostEur: arrivage.totalCostEur,
+      shippingCostEur: arrivage.shippingCostEur,
+      packagingCostEur: arrivage.packagingCostEur,
+      totalCostDh: arrivage.totalCostDh,
+      productCount: arrivage.productCount,
+      totalUnits: arrivage.totalUnits,
+      carrier: arrivage.carrier,
+      trackingNumber: arrivage.trackingNumber,
+      notes: arrivage.notes,
+      products: arrivage.products,
+      expenses: arrivage.expenses,
+      createdAt: arrivage.createdAt,
+      updatedAt: arrivage.updatedAt,
+    };
 
     return NextResponse.json(shipment);
   } catch (error) {
@@ -217,20 +231,20 @@ export async function DELETE(
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
 
-    if (!hasPermission(userProfile.role, 'SHIPMENTS_DELETE')) {
+    if (!hasPermission(userProfile.role, 'ARRIVAGES_DELETE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const shipment = await prisma.shipment.findUnique({
+    const arrivage = await prisma.arrivage.findUnique({
       where: { id },
     });
 
-    if (!shipment) {
-      return NextResponse.json({ error: 'Shipment not found' }, { status: 404 });
+    if (!arrivage) {
+      return NextResponse.json({ error: 'Arrivage not found' }, { status: 404 });
     }
 
-    // Delete shipment (items will be cascade deleted)
-    await prisma.shipment.delete({
+    // Delete arrivage
+    await prisma.arrivage.delete({
       where: { id },
     });
 

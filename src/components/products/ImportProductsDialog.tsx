@@ -18,22 +18,31 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CloseIcon from '@mui/icons-material/Close';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
-import { useTranslations } from 'next-intl';
 
 interface ImportProductsDialogProps {
   open: boolean;
   onClose: () => void;
-  onImport: (data: { sheets: Array<{ sheetName: string; products: any[] }> }) => Promise<void>;
+  onImport: (data: { sheets: Array<{ sheetName: string; products: ImportedProduct[] }> }) => Promise<void>;
 }
 
 interface SheetPreview {
   sheetName: string;
   productCount: number;
-  sampleProducts: any[];
+  sampleProducts: ImportedProduct[];
 }
 
+type ImportedProduct = {
+  name: string;
+  purchasePriceEur: number | null;
+  purchasePriceMad: number;
+  sellingPriceDh: number;
+  promoPriceDh: number | null;
+  quantityReceived: number;
+  quantitySold: number;
+  categoryName?: string;
+};
+
 export function ImportProductsDialog({ open, onClose, onImport }: ImportProductsDialogProps) {
-  const t = useTranslations('common');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<SheetPreview[]>([]);
   const [loading, setLoading] = useState(false);
@@ -86,15 +95,17 @@ export function ImportProductsDialog({ open, onClose, onImport }: ImportProducts
           const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
           // Map Excel columns to our format
-          const mappedProducts = jsonData.map((row: any, index: number) => {
-            const produit = row.Produit || row.produit || row['Produit'] || row.Name || row.name || row.Product || '';
-            const paEur = row['PA EUR'] || row['Prix Achat EUR'] || row['Prix EUR'] || row.paEur || row.purchasePriceEur || 0;
-            const paMad = row['PA (Prix Achat)'] || row['PA'] || row['Prix Achat'] || row.pa || row.purchasePrice || row['PA MAD'] || 0;
-            const pv = row['PV (Prix Vente)'] || row['PV'] || row['Prix Vente'] || row.pv || row.sellingPrice || 0;
-            const promo = row['prix promo'] || row['prix promo'] || row['Promo'] || row.promo || row.promoPrice || 0;
-            const quantite = row.Quantité || row['Quantité'] || row.Quantite || row.quantity || row.Quantity || 0;
-            const qtVendu = row['Qt vendu'] || row['Qt vendu'] || row['Qt Vendu'] || row.qtVendu || row.quantitySold || row['Quantity Sold'] || 0;
-            const category = row.Category || row.category || row.Catégorie || row.catégorie || '';
+          const mappedProducts = jsonData
+            .map((row) => {
+              const rowData = row as Record<string, unknown>;
+              const produit = rowData.Produit || rowData.produit || rowData['Produit'] || rowData.Name || rowData.name || rowData.Product || '';
+              const paEur = rowData['PA EUR'] || rowData['Prix Achat EUR'] || rowData['Prix EUR'] || rowData.paEur || rowData.purchasePriceEur || 0;
+              const paMad = rowData['PA (Prix Achat)'] || rowData['PA'] || rowData['Prix Achat'] || rowData.pa || rowData.purchasePrice || rowData['PA MAD'] || 0;
+              const pv = rowData['PV (Prix Vente)'] || rowData['PV'] || rowData['Prix Vente'] || rowData.pv || rowData.sellingPrice || 0;
+              const promo = rowData['prix promo'] || rowData['Promo'] || rowData.promo || rowData.promoPrice || 0;
+              const quantite = rowData.Quantité || rowData['Quantité'] || rowData.Quantite || rowData.quantity || rowData.Quantity || 0;
+              const qtVendu = rowData['Qt vendu'] || rowData['Qt Vendu'] || rowData.qtVendu || rowData.quantitySold || rowData['Quantity Sold'] || 0;
+              const category = rowData.Category || rowData.category || rowData.Catégorie || rowData.catégorie || '';
 
             const purchasePriceEur = parseFloat(paEur) || null;
             const purchasePriceMad = parseFloat(paMad) || 0;
@@ -146,12 +157,13 @@ export function ImportProductsDialog({ open, onClose, onImport }: ImportProducts
               quantitySold,
               categoryName: category.toString().trim() || undefined,
             };
-          }).filter(Boolean); // Remove nulls
+          })
+            .filter((product): product is ImportedProduct => product !== null);
 
           // Handle two-row pattern: merge products with same name
-          const mergedProducts = new Map<string, any>();
+          const mergedProducts = new Map<string, ImportedProduct>();
           
-          mappedProducts.forEach((product: any) => {
+          mappedProducts.forEach((product) => {
             const key = product.name.toLowerCase().trim();
             const existing = mergedProducts.get(key);
 
@@ -180,8 +192,8 @@ export function ImportProductsDialog({ open, onClose, onImport }: ImportProducts
         setPreview(sheetPreviews);
         const totalProducts = sheetPreviews.reduce((sum, sheet) => sum + sheet.productCount, 0);
         toast.success(`Found ${commandeSheets.length} shipment(s) with ${totalProducts} total products`);
-      } catch (err: any) {
-        setError(err.message || 'Failed to parse file');
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Failed to parse file');
       }
     };
 
@@ -218,15 +230,17 @@ export function ImportProductsDialog({ open, onClose, onImport }: ImportProducts
             const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
             // Map Excel columns to our format
-            const mappedProducts = jsonData.map((row: any) => {
-              const produit = row.Produit || row.produit || row['Produit'] || row.Name || row.name || row.Product || '';
-              const paEur = row['PA EUR'] || row['Prix Achat EUR'] || row['Prix EUR'] || row.paEur || row.purchasePriceEur || 0;
-              const paMad = row['PA (Prix Achat)'] || row['PA'] || row['Prix Achat'] || row.pa || row.purchasePrice || row['PA MAD'] || 0;
-              const pv = row['PV (Prix Vente)'] || row['PV'] || row['Prix Vente'] || row.pv || row.sellingPrice || 0;
-              const promo = row['prix promo'] || row['prix promo'] || row['Promo'] || row.promo || row.promoPrice || 0;
-              const quantite = row.Quantité || row['Quantité'] || row.Quantite || row.quantity || row.Quantity || 0;
-              const qtVendu = row['Qt vendu'] || row['Qt vendu'] || row['Qt Vendu'] || row.qtVendu || row.quantitySold || row['Quantity Sold'] || 0;
-              const category = row.Category || row.category || row.Catégorie || row.catégorie || '';
+            const mappedProducts = jsonData
+              .map((row) => {
+                const rowData = row as Record<string, unknown>;
+                const produit = rowData.Produit || rowData.produit || rowData['Produit'] || rowData.Name || rowData.name || rowData.Product || '';
+                const paEur = rowData['PA EUR'] || rowData['Prix Achat EUR'] || rowData['Prix EUR'] || rowData.paEur || rowData.purchasePriceEur || 0;
+                const paMad = rowData['PA (Prix Achat)'] || rowData['PA'] || rowData['Prix Achat'] || rowData.pa || rowData.purchasePrice || rowData['PA MAD'] || 0;
+                const pv = rowData['PV (Prix Vente)'] || rowData['PV'] || rowData['Prix Vente'] || rowData.pv || rowData.sellingPrice || 0;
+                const promo = rowData['prix promo'] || rowData['Promo'] || rowData.promo || rowData.promoPrice || 0;
+                const quantite = rowData.Quantité || rowData['Quantité'] || rowData.Quantite || rowData.quantity || rowData.Quantity || 0;
+                const qtVendu = rowData['Qt vendu'] || rowData['Qt Vendu'] || rowData.qtVendu || rowData.quantitySold || rowData['Quantity Sold'] || 0;
+                const category = rowData.Category || rowData.category || rowData.Catégorie || rowData.catégorie || '';
 
               const purchasePriceEur = parseFloat(paEur) || null;
               const purchasePriceMad = parseFloat(paMad) || 0;
@@ -268,22 +282,23 @@ export function ImportProductsDialog({ open, onClose, onImport }: ImportProducts
                 return null;
               }
 
-              return {
-                name: produit.toString().trim(),
-                purchasePriceEur: purchasePriceEur && purchasePriceEur > 0 ? purchasePriceEur : null,
-                purchasePriceMad,
-                sellingPriceDh,
-                promoPriceDh: promoPriceDh && promoPriceDh > 0 ? promoPriceDh : null,
-                quantityReceived,
-                quantitySold,
-                categoryName: category.toString().trim() || undefined,
-              };
-            }).filter(Boolean);
+                return {
+                  name: produit.toString().trim(),
+                  purchasePriceEur: purchasePriceEur && purchasePriceEur > 0 ? purchasePriceEur : null,
+                  purchasePriceMad,
+                  sellingPriceDh,
+                  promoPriceDh: promoPriceDh && promoPriceDh > 0 ? promoPriceDh : null,
+                  quantityReceived,
+                  quantitySold,
+                  categoryName: category.toString().trim() || undefined,
+                };
+              })
+              .filter((product): product is ImportedProduct => product !== null);
 
             // Handle two-row pattern: merge products with same name
-            const mergedProducts = new Map<string, any>();
+            const mergedProducts = new Map<string, ImportedProduct>();
             
-            mappedProducts.forEach((product: any) => {
+            mappedProducts.forEach((product) => {
               const key = product.name.toLowerCase().trim();
               const existing = mergedProducts.get(key);
 
@@ -310,15 +325,15 @@ export function ImportProductsDialog({ open, onClose, onImport }: ImportProducts
 
           await onImport({ sheets: sheetsData });
           handleClose();
-        } catch (err: any) {
-          setError(err.message || 'Failed to import products');
+        } catch (err: unknown) {
+          setError(err instanceof Error ? err.message : 'Failed to import products');
           setLoading(false);
         }
       };
 
       reader.readAsBinaryString(file);
-    } catch (err: any) {
-      setError(err.message || 'Failed to import products');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to import products');
       setLoading(false);
     }
   };
@@ -393,7 +408,7 @@ export function ImportProductsDialog({ open, onClose, onImport }: ImportProducts
                   </Box>
                   {sheet.sampleProducts.length > 0 && (
                     <Box sx={{ mt: 1, fontSize: '0.875rem', color: 'text.secondary' }}>
-                      Sample: {sheet.sampleProducts.map((p: any) => p.name).join(', ')}
+                      Sample: {sheet.sampleProducts.map((p) => p.name).join(', ')}
                       {sheet.productCount > 3 && '...'}
                     </Box>
                   )}
@@ -404,13 +419,13 @@ export function ImportProductsDialog({ open, onClose, onImport }: ImportProducts
 
           <Alert severity="info" sx={{ mt: 2 }}>
             <Typography variant="body2" component="div">
-              <strong>Expected format:</strong> Excel file with sheets named "COMMANDE 1111", "COMMANDE 1312", etc.
+              <strong>Expected format:</strong> Excel file with sheets named &quot;COMMANDE 1111&quot;, &quot;COMMANDE 1312&quot;, etc.
               <br />
               <strong>Each sheet:</strong> Will create a separate Arrivage (shipment) record
               <br />
               <strong>Columns:</strong> Produit, PA (Prix Achat) or PA EUR, PV (Prix Vente), prix promo, Quantité, Qt vendu
               <br />
-              <strong>Note:</strong> Sheets named "Charges" and "FOND" will be skipped automatically.
+              <strong>Note:</strong> Sheets named &quot;Charges&quot; and &quot;FOND&quot; will be skipped automatically.
               <br />
               <strong>Products:</strong> If a product with the same name exists, a new product record will be created for this arrivage.
             </Typography>

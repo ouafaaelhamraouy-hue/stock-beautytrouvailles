@@ -38,7 +38,6 @@ interface ReceiptProps {
 }
 
 export function Receipt({ sale, onClose }: ReceiptProps) {
-  const t = useTranslations('common');
   const tSales = useTranslations('sales');
 
   const handlePrint = () => {

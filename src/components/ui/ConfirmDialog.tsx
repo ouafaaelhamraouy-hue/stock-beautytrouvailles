@@ -17,7 +17,8 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   onConfirm: () => void;
-  onCancel: () => void;
+  onCancel?: () => void;
+  onClose?: () => void; // Alias for onCancel
   confirmColor?: 'primary' | 'secondary' | 'error' | 'warning' | 'info' | 'success';
   loading?: boolean;
 }
@@ -30,15 +31,18 @@ export function ConfirmDialog({
   cancelLabel,
   onConfirm,
   onCancel,
+  onClose,
   confirmColor = 'primary',
   loading = false,
 }: ConfirmDialogProps) {
+  // Support both onClose and onCancel (onClose takes precedence)
+  const handleCancel = onClose || onCancel || (() => {});
   const t = useTranslations('common');
 
   return (
     <Dialog
       open={open}
-      onClose={onCancel}
+      onClose={handleCancel}
       aria-labelledby="confirm-dialog-title"
       aria-describedby="confirm-dialog-description"
     >
@@ -49,7 +53,7 @@ export function ConfirmDialog({
         </DialogContentText>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onCancel} disabled={loading}>
+        <Button onClick={handleCancel} disabled={loading}>
           {cancelLabel || t('cancel')}
         </Button>
         <Button

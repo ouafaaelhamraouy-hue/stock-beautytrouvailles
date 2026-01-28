@@ -2,9 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import type { User as PrismaUser } from '@prisma/client';
 
-interface UserProfile extends PrismaUser {
-  // Additional fields can be added here
-}
+type UserProfile = PrismaUser;
 
 async function fetchUserProfile(): Promise<UserProfile> {
   const response = await fetch('/api/user/profile');

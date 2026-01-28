@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
-import { calculateShipmentTotalEUR, calculateShipmentTotalDH } from '@/lib/calculations';
 
 export async function GET(request: Request) {
   try {
@@ -24,75 +23,68 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
 
-    if (!hasPermission(userProfile.role, 'SHIPMENTS_READ')) {
+    if (!hasPermission(userProfile.role, 'ARRIVAGES_READ')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const shipments = await prisma.shipment.findMany({
+    // Get query parameters
+    const { searchParams } = new URL(request.url);
+    const limitParam = parseInt(searchParams.get('limit') || '100');
+    const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 200) : 100;
+    const sortParam = searchParams.get('sort') || 'createdAt';
+    const allowedSorts = new Set([
+      'createdAt',
+      'updatedAt',
+      'purchaseDate',
+      'shipDate',
+      'receivedDate',
+    ]);
+    const sort = allowedSorts.has(sortParam) ? sortParam : 'createdAt';
+
+    // Fetch arrivages (shipments)
+    const arrivages = await prisma.arrivage.findMany({
       include: {
-        supplier: true,
-        items: {
+        products: {
           include: {
-            product: {
-              include: {
-                category: true,
-              },
-            },
+            category: true,
+            brand: true,
           },
         },
+        expenses: true,
       },
       orderBy: {
-        createdAt: 'desc',
+        [sort]: 'desc',
       },
+      take: limit,
     });
 
-    // Calculate totals and summary for each shipment
-    const shipmentsWithSummary = shipments.map((shipment) => {
-      // Calculate items total cost
-      const itemsCostEUR = shipment.items.reduce(
-        (sum, item) => sum + item.quantity * item.costPerUnitEUR,
-        0
-      );
+    // Format response to match expected structure
+    const shipments = arrivages.map((arrivage) => ({
+      id: arrivage.id,
+      reference: arrivage.reference,
+      purchaseDate: arrivage.purchaseDate,
+      shipDate: arrivage.shipDate,
+      receivedDate: arrivage.receivedDate,
+      status: arrivage.status,
+      source: arrivage.source,
+      invoices: arrivage.invoices,
+      exchangeRate: arrivage.exchangeRate,
+      totalCostEur: arrivage.totalCostEur,
+      shippingCostEur: arrivage.shippingCostEur,
+      packagingCostEur: arrivage.packagingCostEur,
+      totalCostDh: arrivage.totalCostDh,
+      productCount: arrivage.productCount,
+      totalUnits: arrivage.totalUnits,
+      carrier: arrivage.carrier,
+      trackingNumber: arrivage.trackingNumber,
+      notes: arrivage.notes,
+      products: arrivage.products,
+      expenses: arrivage.expenses,
+      createdAt: arrivage.createdAt,
+      updatedAt: arrivage.updatedAt,
+    }));
 
-      // Calculate total cost EUR
-      const totalCostEUR = calculateShipmentTotalEUR(
-        shipment.shippingCostEUR,
-        shipment.customsCostEUR,
-        shipment.packagingCostEUR,
-        itemsCostEUR
-      );
-
-      // Calculate total cost DH
-      const totalCostDH = calculateShipmentTotalDH(totalCostEUR, shipment.exchangeRate);
-
-      // Calculate revenue (from sales of products in this shipment)
-      // This will be calculated from sales that reference shipment items
-      const totalRevenueEUR = 0; // TODO: Calculate from sales
-      const totalRevenueDH = totalRevenueEUR * shipment.exchangeRate;
-
-      // Calculate profit
-      const profitEUR = totalRevenueEUR - totalCostEUR;
-      const profitDH = totalRevenueDH - totalCostDH;
-
-      // Calculate margin percentage
-      const marginPercent = totalCostEUR > 0 ? ((profitEUR / totalCostEUR) * 100) : 0;
-
-      return {
-        ...shipment,
-        calculatedTotals: {
-          itemsCostEUR,
-          totalCostEUR,
-          totalCostDH,
-          totalRevenueEUR,
-          totalRevenueDH,
-          profitEUR,
-          profitDH,
-          marginPercent,
-        },
-      };
-    });
-
-    return NextResponse.json(shipmentsWithSummary);
+    return NextResponse.json({ shipments });
   } catch (error) {
     console.error('Error fetching shipments:', error);
     return NextResponse.json(
@@ -122,73 +114,67 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
 
-    if (!hasPermission(userProfile.role, 'SHIPMENTS_CREATE')) {
+    if (!hasPermission(userProfile.role, 'ARRIVAGES_CREATE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     const body = await request.json();
     const {
       reference,
-      supplierId,
-      arrivalDate,
+      purchaseDate,
+      shipDate,
+      receivedDate,
       status,
+      source,
+      invoices,
       exchangeRate,
-      shippingCostEUR,
-      customsCostEUR,
-      packagingCostEUR,
+      shippingCostEur,
+      packagingCostEur,
+      totalCostEur,
+      totalCostDh,
+      carrier,
+      trackingNumber,
+      notes,
     } = body;
 
     // Check if reference already exists
-    const existingShipment = await prisma.shipment.findUnique({
+    const existingArrivage = await prisma.arrivage.findUnique({
       where: { reference },
     });
 
-    if (existingShipment) {
+    if (existingArrivage) {
       return NextResponse.json(
-        { error: 'Shipment with this reference already exists' },
+        { error: 'Arrivage with this reference already exists' },
         { status: 400 }
       );
     }
 
-    // Verify supplier exists
-    const supplier = await prisma.supplier.findUnique({
-      where: { id: supplierId },
-    });
-
-    if (!supplier) {
-      return NextResponse.json({ error: 'Supplier not found' }, { status: 400 });
-    }
-
-    // Create shipment with calculated totals (initially 0 for items)
-    const itemsCostEUR = 0;
-    const totalCostEUR = calculateShipmentTotalEUR(
-      shippingCostEUR || 0,
-      customsCostEUR || 0,
-      packagingCostEUR || 0,
-      itemsCostEUR
-    );
-    const totalCostDH = calculateShipmentTotalDH(totalCostEUR, exchangeRate);
-
-    const shipment = await prisma.shipment.create({
+    // Create arrivage
+    const arrivage = await prisma.arrivage.create({
       data: {
         reference,
-        supplierId,
-        arrivalDate: arrivalDate ? new Date(arrivalDate) : null,
+        purchaseDate: purchaseDate ? new Date(purchaseDate) : null,
+        shipDate: shipDate ? new Date(shipDate) : null,
+        receivedDate: receivedDate ? new Date(receivedDate) : null,
         status: status || 'PENDING',
-        exchangeRate,
-        shippingCostEUR: shippingCostEUR || 0,
-        customsCostEUR: customsCostEUR || 0,
-        packagingCostEUR: packagingCostEUR || 0,
-        totalCostEUR,
-        totalCostDH,
+        source: source || 'OTHER',
+        invoices: invoices || [],
+        exchangeRate: exchangeRate || 10.85,
+        shippingCostEur: shippingCostEur || 0,
+        packagingCostEur: packagingCostEur || 0,
+        totalCostEur: totalCostEur || 0,
+        totalCostDh: totalCostDh || 0,
+        carrier,
+        trackingNumber,
+        notes,
       },
       include: {
-        supplier: true,
-        items: true,
+        products: true,
+        expenses: true,
       },
     });
 
-    return NextResponse.json(shipment, { status: 201 });
+    return NextResponse.json(arrivage, { status: 201 });
   } catch (error) {
     console.error('Error creating shipment:', error);
     return NextResponse.json(

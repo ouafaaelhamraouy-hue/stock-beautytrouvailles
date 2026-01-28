@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 import { hasPermission } from '@/lib/permissions';
 import { calculateSaleTotal } from '@/lib/calculations';
+import { saleSchema } from '@/lib/validations';
 
 export async function GET(request: Request) {
   try {
@@ -36,7 +38,7 @@ export async function GET(request: Request) {
     const isPromo = searchParams.get('isPromo');
 
     // Build where clause
-    const where: any = {};
+    const where: Prisma.SaleWhereInput = {};
     if (productId) {
       where.productId = productId;
     }
@@ -102,19 +104,30 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { productId, quantity, pricePerUnit, isPromo = false, saleDate } = body;
+    
+    // Validate request body using saleSchema
+    const validationResult = saleSchema.safeParse({
+      ...body,
+      saleDate: body.saleDate ? new Date(body.saleDate) : new Date(),
+    });
 
-    // Verify product exists and get shipment items with dates
+    if (!validationResult.success) {
+      return NextResponse.json(
+        { error: 'Invalid request data', details: validationResult.error.errors },
+        { status: 400 }
+      );
+    }
+
+    const { productId, quantity, pricePerUnit, isPromo = false, saleDate, notes } = validationResult.data;
+
+    // Fetch product with category and optional arrivage for display
     const product = await prisma.product.findUnique({
       where: { id: productId },
       include: {
-        shipmentItems: {
+        category: true,
+        arrivage: {
           select: {
-            id: true,
-            quantityRemaining: true,
-            quantitySold: true,
-            quantity: true,
-            createdAt: true,
+            reference: true,
           },
         },
       },
@@ -124,87 +137,99 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
 
-    // Calculate total available stock
-    const totalAvailableStock = product.shipmentItems.reduce(
-      (sum, item) => sum + item.quantityRemaining,
-      0
-    );
+    // Calculate available stock: quantityReceived - quantitySold
+    const availableStock = product.quantityReceived - product.quantitySold;
 
-    // Check if enough stock is available
-    if (quantity > totalAvailableStock) {
+    // Guardrail: Check if enough stock is available
+    if (quantity > availableStock) {
       return NextResponse.json(
-        { error: `Insufficient stock. Available: ${totalAvailableStock}, Requested: ${quantity}` },
+        { error: `Insufficient stock. Available: ${availableStock}, Requested: ${quantity}` },
+        { status: 409 }
+      );
+    }
+
+    // Rule: Custom deals - if price is below cost, notes are required
+    const purchasePriceMad = product.purchasePriceMad ? Number(product.purchasePriceMad) : 0;
+    if (purchasePriceMad > 0 && pricePerUnit < purchasePriceMad) {
+      if (!notes || notes.trim().length === 0) {
+        return NextResponse.json(
+          { error: 'Notes are required when selling below cost price' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Calculate total amount (must equal quantity * pricePerUnit) - do not trust client
+    const totalAmount = calculateSaleTotal(quantity, pricePerUnit);
+    const expectedTotal = quantity * pricePerUnit;
+    
+    if (Math.abs(totalAmount - expectedTotal) > 0.01) {
+      return NextResponse.json(
+        { error: 'Total amount mismatch. Expected: ' + expectedTotal + ', Got: ' + totalAmount },
         { status: 400 }
       );
     }
 
-    // Calculate total amount (must equal quantity * pricePerUnit)
-    const totalAmount = calculateSaleTotal(quantity, pricePerUnit);
-
-    // Create sale
-    const sale = await prisma.sale.create({
-      data: {
-        productId,
-        quantity,
-        pricePerUnit,
-        totalAmount,
-        isPromo,
-        saleDate: saleDate ? new Date(saleDate) : new Date(),
-      },
-      include: {
-        product: {
-          include: {
-            category: true,
+    // Use transaction to ensure atomicity
+    const result = await prisma.$transaction(async (tx) => {
+      // Create sale
+      const sale = await tx.sale.create({
+        data: {
+          productId,
+          quantity,
+          pricePerUnit,
+          totalAmount,
+          isPromo,
+          saleDate: saleDate || new Date(),
+          notes: notes || null,
+        },
+        include: {
+          product: {
+            include: {
+              category: true,
+            },
           },
         },
-      },
+      });
+
+      // Update product: increment quantitySold
+      const previousQtySold = product.quantitySold;
+      const newQtySold = previousQtySold + quantity;
+
+      await tx.product.update({
+        where: { id: productId },
+        data: {
+          quantitySold: newQtySold,
+        },
+      });
+
+      // Create StockMovement entry
+      await tx.stockMovement.create({
+        data: {
+          productId,
+          type: 'SALE',
+          quantity: -quantity, // Negative for outbound
+          previousQty: product.quantityReceived - previousQtySold,
+          newQty: product.quantityReceived - newQtySold,
+          reference: `Sale ${sale.id}`,
+          userId: user.id,
+        },
+      });
+
+      return sale;
     });
 
-    // Update shipment items - reduce quantityRemaining and increase quantitySold
-    // Distribute the sale across shipment items (FIFO - first in, first out)
-    let remainingQuantity = quantity;
-    const shipmentItemsToUpdate: Array<{ id: string; quantity: number }> = [];
-
-    // Sort shipment items by creation date (oldest first) for FIFO
-    const sortedItems = [...product.shipmentItems]
-      .filter((item) => item.quantityRemaining > 0)
-      .sort((a, b) => {
-        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return dateA - dateB;
-      });
-
-    for (const item of sortedItems) {
-      if (remainingQuantity <= 0) break;
-
-      const toDeduct = Math.min(remainingQuantity, item.quantityRemaining);
-      shipmentItemsToUpdate.push({
-        id: item.id,
-        quantity: toDeduct,
-      });
-      remainingQuantity -= toDeduct;
-    }
-
-    // Update shipment items in a transaction
-    if (shipmentItemsToUpdate.length > 0) {
-      await prisma.$transaction(
-        shipmentItemsToUpdate.map(({ id, quantity: qty }) =>
-          prisma.shipmentItem.update({
-            where: { id },
-            data: {
-              quantitySold: { increment: qty },
-              quantityRemaining: { decrement: qty },
-            },
-          })
-        )
-      );
-    }
-
-    return NextResponse.json(sale, { status: 201 });
-  } catch (error) {
+    return NextResponse.json(result, { status: 201 });
+  } catch (error: unknown) {
     console.error('Error creating sale:', error);
+    
+    // Don't leak internal errors in production
+    const errorMessage = process.env.NODE_ENV === 'development'
+      ? (error instanceof Error ? error.message : 'Unknown error')
+      : 'Internal server error';
+    
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: errorMessage },
       { status: 500 }
     );
   }

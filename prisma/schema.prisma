@@ -27,6 +27,7 @@ model User {
 }
 
 enum UserRole {
+  SUPER_ADMIN
   ADMIN
   STAFF
 }
@@ -224,6 +225,7 @@ model Sale {
   pricePerUnit Decimal  @db.Decimal(10, 2)
   totalAmount Decimal  @db.Decimal(10, 2) // Must equal quantity * pricePerUnit
   isPromo     Boolean   @default(false)
+  notes       String?   // Optional notes for the sale
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

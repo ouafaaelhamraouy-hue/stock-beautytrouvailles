@@ -1,12 +1,11 @@
 'use client';
 
-import { useState } from 'react';
 import {
   DataGrid,
   GridColDef,
   GridToolbar,
 } from '@mui/x-data-grid';
-import { Box, Button, Chip, LinearProgress } from '@mui/material';
+import { Box, Button, LinearProgress } from '@mui/material';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
@@ -50,7 +49,6 @@ interface InventoryTableProps {
 }
 
 export function InventoryTable({ items }: InventoryTableProps) {
-  const t = useTranslations('common');
   const tInventory = useTranslations('inventory');
 
   const getStatusLabel = (status: string) => {

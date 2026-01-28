@@ -1,6 +1,6 @@
 'use client';
 
-import { useTranslations, useLocale } from 'next-intl';
+import { useTranslations } from 'next-intl';
 import { usePathname, useRouter } from '@/i18n/routing';
 import {
   BottomNavigation,
@@ -15,7 +15,7 @@ import PointOfSaleIcon from '@mui/icons-material/PointOfSale';
 import WarehouseIcon from '@mui/icons-material/Warehouse';
 import MenuIcon from '@mui/icons-material/Menu';
 import { useState } from 'react';
-import { Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Divider } from '@mui/material';
+import { Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText } from '@mui/material';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import ReceiptIcon from '@mui/icons-material/Receipt';
 import AssessmentIcon from '@mui/icons-material/Assessment';
@@ -25,7 +25,6 @@ import { useUserProfile } from '@/hooks/useUserProfile';
 
 export function MobileNav() {
   const t = useTranslations('nav');
-  const locale = useLocale();
   const pathname = usePathname();
   const router = useRouter();
   const { profile } = useUserProfile();

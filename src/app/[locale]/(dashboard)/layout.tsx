@@ -6,8 +6,9 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { Topbar } from '@/components/layout/Topbar';
 import { MobileNav } from '@/components/layout/MobileNav';
 
-const DRAWER_WIDTH = 240;
-const DRAWER_WIDTH_COLLAPSED = 64;
+const EXPANDED_WIDTH = 260;
+const COLLAPSED_WIDTH = 72;
+const STORAGE_KEY = 'sidebar-collapsed';
 
 export default function AuthenticatedLayout({
   children,
@@ -16,7 +17,13 @@ export default function AuthenticatedLayout({
 }) {
   const [mounted, setMounted] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [desktopOpen, setDesktopOpen] = useState(true);
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      return stored === 'true';
+    }
+    return false;
+  });
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
@@ -24,12 +31,26 @@ export default function AuthenticatedLayout({
     setMounted(true);
   }, []);
 
+  // Listen for storage changes to sync sidebar state (cross-tab)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    const handleStorageChange = () => {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      setCollapsed(stored === 'true');
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
+
   const handleDrawerToggle = () => {
-    if (isMobile) {
-      setMobileOpen(!mobileOpen);
-    } else {
-      setDesktopOpen(!desktopOpen);
-    }
+    // Only toggle mobile drawer on mobile devices
+    if (!isMobile) return;
+    setMobileOpen((prev) => !prev);
   };
 
   // Close mobile drawer when switching to desktop
@@ -43,6 +64,22 @@ export default function AuthenticatedLayout({
     setMobileOpen(false);
   };
 
+  const handleToggleCollapse = () => {
+    // Only toggle collapse on desktop
+    if (isMobile) return;
+    
+    setCollapsed((prev) => {
+      const newCollapsed = !prev;
+      
+      // Persist to localStorage immediately
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEY, String(newCollapsed));
+      }
+      
+      return newCollapsed;
+    });
+  };
+
   if (!mounted) {
     return (
       <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -53,7 +90,7 @@ export default function AuthenticatedLayout({
     );
   }
 
-  const drawerWidth = desktopOpen ? DRAWER_WIDTH : DRAWER_WIDTH_COLLAPSED;
+  const drawerWidth = isMobile ? EXPANDED_WIDTH : (collapsed ? COLLAPSED_WIDTH : EXPANDED_WIDTH);
 
   return (
     <Box 
@@ -66,18 +103,17 @@ export default function AuthenticatedLayout({
       <CssBaseline />
       <Topbar onMenuClick={handleDrawerToggle} />
       <Sidebar
-        drawerWidth={drawerWidth}
         mobileOpen={mobileOpen}
-        desktopOpen={desktopOpen}
         onMobileClose={handleDrawerClose}
         isMobile={isMobile}
-        onDesktopToggle={handleDrawerToggle}
+        collapsed={collapsed}
+        onToggleCollapse={handleToggleCollapse}
       />
       <Box
         component="main"
         sx={{
           flexGrow: 1,
-          p: 3,
+          p: 0,
           width: {
             xs: '100%',
             md: `calc(100% - ${drawerWidth}px)`,
@@ -88,8 +124,8 @@ export default function AuthenticatedLayout({
           maxWidth: '100%',
           overflowX: 'auto',
           transition: theme.transitions.create(['width', 'margin'], {
-            easing: theme.transitions.easing.sharp,
-            duration: theme.transitions.duration.enteringScreen,
+            easing: theme.transitions.easing.easeInOut,
+            duration: theme.transitions.duration.standard,
           }),
         }}
       >

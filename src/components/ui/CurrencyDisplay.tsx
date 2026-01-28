@@ -9,7 +9,6 @@ interface CurrencyDisplayProps {
   currency: 'EUR' | 'DH';
   variant?: 'body1' | 'body2' | 'h6' | 'h5' | 'h4' | 'h3' | 'h2' | 'h1';
   color?: string;
-  showSymbol?: boolean;
 }
 
 export function CurrencyDisplay({
@@ -17,7 +16,6 @@ export function CurrencyDisplay({
   currency,
   variant = 'body1',
   color,
-  showSymbol = true,
 }: CurrencyDisplayProps) {
   const locale = useLocale() as 'en' | 'fr';
   const formatted = formatCurrency(amount, currency, locale);

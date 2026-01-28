@@ -204,7 +204,6 @@ export function LowStockAlerts() {
       <Grid container spacing={2}>
         {lowStockProducts.map((product) => {
           const isOutOfStock = product.currentStock === 0;
-          const isLowStock = product.currentStock > 0 && product.currentStock <= product.reorderLevel;
 
           return (
             <Grid item xs={12} key={product.id}>

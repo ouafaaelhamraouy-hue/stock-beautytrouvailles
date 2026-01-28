@@ -11,9 +11,7 @@ import {
   Box,
   Typography,
   Chip,
-  Link,
 } from '@mui/material';
-import { useTranslations } from 'next-intl';
 import { useRouter } from '@/i18n/routing';
 import { CurrencyDisplay } from '@/components/ui';
 
@@ -36,7 +34,6 @@ interface TopProductsTableProps {
 }
 
 export function TopProductsTable({ products }: TopProductsTableProps) {
-  const t = useTranslations('nav');
   const router = useRouter();
 
   if (products.length === 0) {

@@ -1,14 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   Box,
   Typography,
-  Paper,
-  CircularProgress,
 } from '@mui/material';
 import WarehouseIcon from '@mui/icons-material/Warehouse';
-import { useTranslations } from 'next-intl';
 import { InventoryFilters } from '@/components/inventory/InventoryFilters';
 import { ShipmentAccordion } from '@/components/inventory/ShipmentAccordion';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui';
@@ -53,7 +50,6 @@ interface Arrivage {
 }
 
 export default function InventoryPage() {
-  const t = useTranslations('nav');
   const [selectedArrivageId, setSelectedArrivageId] = useState<string | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null);
@@ -109,7 +105,7 @@ export default function InventoryPage() {
   }));
 
   if (inventoryLoading) {
-    return <LoadingState message="Chargement de l'inventaire..." />;
+    return <LoadingState variant="table" rows={5} />;
   }
 
   if (inventoryError) {
@@ -152,11 +148,8 @@ export default function InventoryPage() {
               key={arrivage.id}
               reference={arrivage.reference}
               shipDate={arrivage.shipDate}
-              purchaseDate={arrivage.purchaseDate}
               source={arrivage.source}
               totalProducts={arrivage.summary.totalProducts}
-              totalStock={arrivage.summary.totalStock}
-              totalSold={arrivage.summary.totalSold}
               totalValue={arrivage.summary.totalValue}
               products={arrivage.products}
               defaultExpanded={index === 0}

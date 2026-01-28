@@ -23,7 +23,7 @@ export async function middleware(request: NextRequest) {
   }
   
   // Apply locale routing first
-  let response = intlMiddleware(request);
+  const response = intlMiddleware(request);
   
   // Check authentication for protected routes
   if (!isPublicRoute) {

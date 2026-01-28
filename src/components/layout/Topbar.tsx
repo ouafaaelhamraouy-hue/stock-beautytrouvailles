@@ -80,7 +80,6 @@ interface TopbarProps {
 export function Topbar({ onMenuClick }: TopbarProps) {
   const t = useTranslations('layout');
   const tCommon = useTranslations('common');
-  const tNav = useTranslations('nav');
   const locale = useLocale();
   const { user, signOut } = useAuth();
   const { profile } = useUserProfile();
@@ -140,10 +139,16 @@ export function Topbar({ onMenuClick }: TopbarProps) {
     <AppBar 
       position="fixed" 
       elevation={0}
-        sx={(theme) => ({ 
+      sx={(theme) => ({ 
         zIndex: theme.zIndex.drawer + 1,
-        // White text/icons on pink background in light mode
-        color: theme.palette.mode === 'light' ? '#FFFFFF' : 'text.primary',
+        backgroundColor: theme.palette.mode === 'dark' 
+          ? theme.palette.background.paper 
+          : '#FFFFFF',
+        borderBottom: '1px solid',
+        borderColor: theme.palette.mode === 'dark'
+          ? 'rgba(255, 255, 255, 0.08)'
+          : 'rgba(0, 0, 0, 0.08)',
+        color: 'text.primary',
       })}
     >
       <Toolbar sx={{ minHeight: { xs: '56px !important', sm: '64px !important' }, px: { xs: 2, sm: 3 } }}>
@@ -152,13 +157,15 @@ export function Topbar({ onMenuClick }: TopbarProps) {
           onClick={onMenuClick}
           sx={(theme) => ({ 
             mr: 2,
-            color: theme.palette.mode === 'light' ? '#FFFFFF' : 'text.primary',
+            color: 'text.primary',
+            display: { xs: 'block', md: 'none' }, // Only show on mobile
             '&:hover': {
               backgroundColor: theme.palette.mode === 'dark'
                 ? 'rgba(255, 255, 255, 0.08)'
-                : 'rgba(255, 255, 255, 0.15)',
+                : 'rgba(0, 0, 0, 0.04)',
             },
           })}
+          aria-label="Toggle sidebar"
         >
           <MenuIcon />
         </IconButton>
@@ -167,13 +174,13 @@ export function Topbar({ onMenuClick }: TopbarProps) {
           variant="h6" 
           noWrap 
           component="div" 
-          sx={(theme) => ({ 
+          sx={{ 
             display: { xs: 'none', sm: 'block' },
             fontWeight: 700,
             fontSize: '1.125rem',
-            color: theme.palette.mode === 'light' ? '#FFFFFF' : 'text.primary',
+            color: 'text.primary',
             letterSpacing: '-0.02em',
-          })}
+          }}
         >
           BeautyTrouvailles
         </Typography>
@@ -186,47 +193,45 @@ export function Topbar({ onMenuClick }: TopbarProps) {
             sx={(theme) => ({
               backgroundColor: theme.palette.mode === 'dark' 
                 ? 'rgba(255, 255, 255, 0.05)' 
-                : 'rgba(255, 255, 255, 0.15)',
+                : 'rgba(0, 0, 0, 0.04)',
               borderRadius: 2,
               border: '1px solid',
               borderColor: theme.palette.mode === 'dark' 
                 ? 'rgba(255, 255, 255, 0.1)' 
-                : 'rgba(255, 255, 255, 0.25)',
+                : 'rgba(0, 0, 0, 0.08)',
               transition: 'all 0.2s ease',
               '&:hover': {
                 backgroundColor: theme.palette.mode === 'dark'
                   ? 'rgba(255, 255, 255, 0.08)'
-                  : 'rgba(255, 255, 255, 0.25)',
+                  : 'rgba(0, 0, 0, 0.06)',
                 borderColor: theme.palette.mode === 'dark'
                   ? 'rgba(255, 255, 255, 0.15)'
-                  : 'rgba(255, 255, 255, 0.35)',
+                  : 'rgba(0, 0, 0, 0.12)',
               },
               '&:focus-within': {
                 backgroundColor: theme.palette.mode === 'dark'
                   ? 'rgba(255, 255, 255, 0.08)'
-                  : 'rgba(255, 255, 255, 0.3)',
-                borderColor: '#FFFFFF',
-                boxShadow: '0 0 0 3px rgba(255, 255, 255, 0.2)',
+                  : 'rgba(0, 0, 0, 0.06)',
+                borderColor: 'primary.main',
+                boxShadow: '0 0 0 3px rgba(212, 20, 90, 0.1)',
               },
             })}
           >
             <SearchIconWrapper>
-              <SearchIcon sx={(theme) => ({ 
-                color: theme.palette.mode === 'light' ? 'rgba(255, 255, 255, 0.7)' : 'text.secondary' 
-              })} />
+              <SearchIcon sx={{ color: 'text.secondary' }} />
             </SearchIconWrapper>
             <StyledInputBase
               placeholder={t('searchPlaceholder')}
               inputProps={{ 'aria-label': 'search' }}
               value={searchValue}
               onChange={(e) => setSearchValue(e.target.value)}
-              sx={(theme) => ({
-                color: theme.palette.mode === 'light' ? '#FFFFFF' : 'text.primary',
+              sx={{
+                color: 'text.primary',
                 '& input::placeholder': {
-                  color: theme.palette.mode === 'light' ? 'rgba(255, 255, 255, 0.7)' : 'text.secondary',
+                  color: 'text.secondary',
                   opacity: 1,
                 },
-              })}
+              }}
             />
           </Search>
         </form>
@@ -236,11 +241,11 @@ export function Topbar({ onMenuClick }: TopbarProps) {
           <IconButton 
             onClick={handleNotificationsOpen}
             sx={(theme) => ({
-              color: theme.palette.mode === 'light' ? '#FFFFFF' : 'text.primary',
+              color: 'text.primary',
               '&:hover': {
                 backgroundColor: theme.palette.mode === 'dark'
                   ? 'rgba(255, 255, 255, 0.08)'
-                  : 'rgba(255, 255, 255, 0.15)',
+                  : 'rgba(0, 0, 0, 0.04)',
               },
             })}
           >
@@ -273,11 +278,11 @@ export function Topbar({ onMenuClick }: TopbarProps) {
           <IconButton 
             onClick={toggleMode}
             sx={(theme) => ({
-              color: theme.palette.mode === 'light' ? '#FFFFFF' : 'text.primary',
+              color: 'text.primary',
               '&:hover': {
                 backgroundColor: theme.palette.mode === 'dark'
                   ? 'rgba(255, 255, 255, 0.08)'
-                  : 'rgba(255, 255, 255, 0.15)',
+                  : 'rgba(0, 0, 0, 0.04)',
               },
             })}
           >
@@ -290,11 +295,11 @@ export function Topbar({ onMenuClick }: TopbarProps) {
           <IconButton 
             onClick={handleLocaleMenuOpen}
             sx={(theme) => ({
-              color: theme.palette.mode === 'light' ? '#FFFFFF' : 'text.primary',
+              color: 'text.primary',
               '&:hover': {
                 backgroundColor: theme.palette.mode === 'dark'
                   ? 'rgba(255, 255, 255, 0.08)'
-                  : 'rgba(255, 255, 255, 0.15)',
+                  : 'rgba(0, 0, 0, 0.04)',
               },
             })}
           >
@@ -346,7 +351,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
                   },
                 })}
               >
-                <Avatar sx={{ width: 36, height: 36, bgcolor: 'primary.main', fontSize: '0.875rem', fontWeight: 600 }}>
+                <Avatar sx={{ width: 36, height: 36, bgcolor: 'primary.main', color: 'white', fontSize: '0.875rem', fontWeight: 600 }}>
                   {user.email?.charAt(0).toUpperCase() || 'U'}
                 </Avatar>
               </IconButton>

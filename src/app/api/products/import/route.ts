@@ -4,6 +4,23 @@ import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 
+type ImportedProduct = {
+  name?: string;
+  categoryName?: string;
+  purchasePriceEur?: number;
+  purchasePriceMad?: number;
+  sellingPriceDh?: number;
+  promoPriceDh?: number;
+  quantityReceived?: number;
+  quantitySold?: number;
+  purchaseSource?: string;
+};
+
+type SheetData = {
+  sheetName: string;
+  products: ImportedProduct[];
+};
+
 export async function POST(request: Request) {
   try {
     const supabase = await createClient();
@@ -29,7 +46,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { sheets } = body;
+    const { sheets } = body as { sheets?: SheetData[] };
 
     if (!Array.isArray(sheets) || sheets.length === 0) {
       return NextResponse.json(
@@ -50,7 +67,7 @@ export async function POST(request: Request) {
 
     // Process each sheet (COMMANDE sheet = one Arrivage)
     for (const sheetData of sheets) {
-      const { sheetName, products } = sheetData;
+        const { sheetName, products } = sheetData as SheetData;
 
       if (!sheetName || !Array.isArray(products) || products.length === 0) {
         results.skipped++;
@@ -67,11 +84,13 @@ export async function POST(request: Request) {
         if (!arrivage) {
           // Create new Arrivage
           // Calculate totals from products
-          const totalUnits = products.reduce((sum: number, p: any) => sum + (p.quantityReceived || 0), 0);
-          const uniqueProducts = new Set(products.map((p: any) => p.name?.toLowerCase().trim()).filter(Boolean));
+          const totalUnits = products.reduce((sum: number, p: ImportedProduct) => sum + (p.quantityReceived || 0), 0);
+          const uniqueProducts = new Set(
+            products.map((p: ImportedProduct) => p.name?.toLowerCase().trim()).filter(Boolean)
+          );
           
           // Calculate total cost in MAD (sum of all purchase prices)
-          const totalCostMad = products.reduce((sum: number, p: any) => {
+          const totalCostMad = products.reduce((sum: number, p: ImportedProduct) => {
             return sum + ((p.purchasePriceMad || 0) * (p.quantityReceived || 0));
           }, 0);
 
@@ -235,7 +254,7 @@ export async function POST(request: Request) {
             await prisma.product.create({
               data: {
                 name: nameStr,
-                brand: null,
+                brandId: null, // Use brandId instead of brand
                 categoryId: category.id,
                 purchaseSource: purchaseSource || 'OTHER',
                 purchasePriceEur: purchasePriceEur && purchasePriceEur > 0 ? purchasePriceEur : null,
@@ -250,7 +269,7 @@ export async function POST(request: Request) {
             });
 
             results.productsCreated++;
-          } catch (error: any) {
+          } catch (error: unknown) {
             if (error instanceof PrismaClientKnownRequestError && error.code === 'P2002') {
               // Unique constraint violation (shouldn't happen with current schema)
               results.skipped++;
@@ -258,17 +277,17 @@ export async function POST(request: Request) {
               results.errors.push({
                 sheet: sheetName,
                 product: name?.toString() || 'N/A',
-                error: error.message || 'Unknown error',
+                error: error instanceof Error ? error.message : 'Unknown error',
               });
               results.skipped++;
             }
           }
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         results.errors.push({
           sheet: sheetName,
           product: 'N/A',
-          error: error.message || 'Failed to process sheet',
+          error: error instanceof Error ? error.message : 'Failed to process sheet',
         });
         results.skipped++;
       }

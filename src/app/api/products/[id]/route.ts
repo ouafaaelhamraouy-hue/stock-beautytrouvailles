@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
+import { Prisma } from '@prisma/client';
 
 export async function GET(
   request: Request,
@@ -82,7 +83,7 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const updateData: any = {};
+    const updateData: Prisma.ProductUpdateInput = {};
 
     // Get current product to access arrivage exchange rate
     const currentProduct = await prisma.product.findUnique({
@@ -95,9 +96,45 @@ export async function PATCH(
       exchangeRate = currentProduct.arrivage.exchangeRate.toNumber();
     }
 
+    // Check permission for editing purchase costs
+    const isEditingCosts = body.purchasePriceEur !== undefined || body.purchasePriceMad !== undefined;
+    if (isEditingCosts && !hasPermission(userProfile.role, 'PRODUCTS_EDIT_COSTS')) {
+      return NextResponse.json(
+        { error: 'You do not have permission to edit purchase costs' },
+        { status: 403 }
+      );
+    }
+
+    // Prevent direct stock mutations outside audited endpoints
+    if (body.quantityReceived !== undefined || body.quantitySold !== undefined) {
+      return NextResponse.json(
+        { error: 'Direct stock edits are not allowed. Use /adjust-stock or shipment item adjustments.' },
+        { status: 400 }
+      );
+    }
+
+    // Validate category/brand if provided
+    if (body.categoryId !== undefined) {
+      const category = await prisma.category.findUnique({
+        where: { id: body.categoryId },
+      });
+      if (!category) {
+        return NextResponse.json({ error: 'Category not found' }, { status: 400 });
+      }
+    }
+
+    if (body.brandId !== undefined && body.brandId !== null) {
+      const brand = await prisma.brand.findUnique({
+        where: { id: body.brandId },
+      });
+      if (!brand) {
+        return NextResponse.json({ error: 'Brand not found' }, { status: 400 });
+      }
+    }
+
     // Only update provided fields
     if (body.name !== undefined) updateData.name = body.name;
-    if (body.brand !== undefined) updateData.brand = body.brand;
+    if (body.brandId !== undefined) updateData.brandId = body.brandId;
     if (body.categoryId !== undefined) updateData.categoryId = body.categoryId;
     if (body.purchaseSource !== undefined) updateData.purchaseSource = body.purchaseSource;
     if (body.purchasePriceEur !== undefined) {
@@ -110,8 +147,6 @@ export async function PATCH(
     if (body.purchasePriceMad !== undefined) updateData.purchasePriceMad = body.purchasePriceMad;
     if (body.sellingPriceDh !== undefined) updateData.sellingPriceDh = body.sellingPriceDh;
     if (body.promoPriceDh !== undefined) updateData.promoPriceDh = body.promoPriceDh;
-    if (body.quantityReceived !== undefined) updateData.quantityReceived = body.quantityReceived;
-    if (body.quantitySold !== undefined) updateData.quantitySold = body.quantitySold;
     if (body.reorderLevel !== undefined) updateData.reorderLevel = body.reorderLevel;
     if (body.isActive !== undefined) updateData.isActive = body.isActive;
 
@@ -125,9 +160,9 @@ export async function PATCH(
     });
 
     return NextResponse.json(product);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error updating product:', error);
-    if (error.code === 'P2025') {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
     return NextResponse.json(
@@ -172,9 +207,9 @@ export async function DELETE(
     });
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error deleting product:', error);
-    if (error.code === 'P2025') {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
     return NextResponse.json(

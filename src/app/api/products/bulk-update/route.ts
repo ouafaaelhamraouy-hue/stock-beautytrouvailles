@@ -37,13 +37,62 @@ export async function POST(request: Request) {
       );
     }
 
+    const canEditCosts = hasPermission(userProfile.role, 'PRODUCTS_EDIT_COSTS');
+    const allowedFields = new Set([
+      'name',
+      'brandId',
+      'categoryId',
+      'purchaseSource',
+      'sellingPriceDh',
+      'promoPriceDh',
+      'reorderLevel',
+      'isActive',
+      'arrivageId',
+    ]);
+    const costFields = new Set(['purchasePriceEur', 'purchasePriceMad']);
+    const forbiddenFields = new Set(['quantityReceived', 'quantitySold']);
+
     // Process updates in a transaction
     const results = await Promise.allSettled(
-      updates.map((update: any) => {
-        const { id, ...updateData } = update;
+      updates.map(async (update: Record<string, unknown>) => {
+        const { id, ...updateData } = update || {};
+        if (!id) {
+          throw new Error('Missing product id');
+        }
+
+        // Disallow direct stock edits
+        for (const field of forbiddenFields) {
+          if (updateData[field] !== undefined) {
+            throw new Error(`Field not allowed: ${field}`);
+          }
+        }
+
+        // Disallow cost edits without permission
+        if (!canEditCosts) {
+          for (const field of costFields) {
+            if (updateData[field] !== undefined) {
+              throw new Error(`Field not allowed: ${field}`);
+            }
+          }
+        }
+
+        // Allow only known fields
+        const sanitized: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(updateData)) {
+          if (allowedFields.has(key) || (canEditCosts && costFields.has(key))) {
+            sanitized[key] = value;
+          } else if (value !== undefined) {
+            throw new Error(`Field not allowed: ${key}`);
+          }
+        }
+
+        if (Object.keys(sanitized).length === 0) {
+          throw new Error('No valid fields to update');
+        }
+
         return prisma.product.update({
           where: { id },
-          data: updateData,
+          data: sanitized,
           include: {
             category: true,
             arrivage: true,

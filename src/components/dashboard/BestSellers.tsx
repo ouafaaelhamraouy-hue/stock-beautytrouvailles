@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import { useQuery } from '@tanstack/react-query';
+import type { Theme } from '@mui/material/styles';
 
 interface BestSeller {
   name: string;
@@ -30,7 +31,7 @@ export function BestSellers() {
     },
   });
 
-  const cardStyle = (theme: any) => ({
+  const cardStyle = (theme: Theme) => ({
     elevation: 0,
     p: 4,
     borderRadius: 2,
@@ -80,7 +81,7 @@ export function BestSellers() {
     );
   }
 
-  const getRankColor = (index: number, theme: any) => {
+  const getRankColor = (index: number, theme: Theme) => {
     if (index === 0) return { bg: '#FFD700', color: '#000' }; // Gold
     if (index === 1) return { bg: '#C0C0C0', color: '#000' }; // Silver
     if (index === 2) return { bg: '#CD7F32', color: '#FFF' }; // Bronze

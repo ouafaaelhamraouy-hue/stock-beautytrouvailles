@@ -18,7 +18,7 @@ import {
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { ShipmentHeader } from './ShipmentHeader';
 import { CurrencyDisplay } from '@/components/ui';
-import { calculateMargin } from '@/lib/calculations';
+import { PurchaseSource } from '@prisma/client';
 
 interface Product {
   id: string;
@@ -37,11 +37,8 @@ interface Product {
 interface ShipmentAccordionProps {
   reference: string;
   shipDate: string | null;
-  purchaseDate: string | null;
-  source: string;
+  source: PurchaseSource;
   totalProducts: number;
-  totalStock: number;
-  totalSold: number;
   totalValue: number;
   products: Product[];
   defaultExpanded?: boolean;
@@ -50,11 +47,8 @@ interface ShipmentAccordionProps {
 export function ShipmentAccordion({
   reference,
   shipDate,
-  purchaseDate,
   source,
   totalProducts,
-  totalStock,
-  totalSold,
   totalValue,
   products,
   defaultExpanded = false,
@@ -85,11 +79,8 @@ export function ShipmentAccordion({
         <ShipmentHeader
           reference={reference}
           shipDate={shipDate}
-          purchaseDate={purchaseDate}
-          source={source as any}
+          source={source}
           totalProducts={totalProducts}
-          totalStock={totalStock}
-          totalSold={totalSold}
           totalValue={totalValue}
         />
       </AccordionSummary>

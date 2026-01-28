@@ -5,14 +5,16 @@ const createQueryClient = () =>
   new QueryClient({
     defaultOptions: {
       queries: {
-        staleTime: 1000 * 60 * 5, // 5 minutes - don't refetch if data is fresh
-        gcTime: 1000 * 60 * 30, // 30 minutes cache (formerly cacheTime)
+        staleTime: 1000 * 60, // 1 minute default - data is relatively stable
+        gcTime: 1000 * 60 * 10, // 10 minutes cache
         refetchOnWindowFocus: false, // Don't refetch when user returns to tab
-        refetchOnMount: false, // Don't refetch when component mounts if data exists
-        refetchOnReconnect: false, // Don't refetch on reconnect
+        refetchOnMount: 'always', // Always refetch on mount for fresh data
+        refetchOnReconnect: true, // Refetch on reconnect to get latest data
         retry: 1, // Only retry once on failure
         // Enable structural sharing for better performance
         structuralSharing: true,
+        // Use keepPreviousData for paginated lists to prevent UI flicker
+        keepPreviousData: true,
       },
       mutations: {
         retry: 1,

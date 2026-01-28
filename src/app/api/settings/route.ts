@@ -27,7 +27,7 @@ async function getOrCreateSetting(key: string, defaultValue: string) {
   return setting;
 }
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
     const supabase = await createClient();
     const {
@@ -45,6 +45,10 @@ export async function GET(request: Request) {
 
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
+    }
+
+    if (!hasPermission(userProfile.role, 'SETTINGS_READ')) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // Get all settings, create defaults if they don't exist
@@ -90,8 +94,8 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
 
-    // Only admins can update settings
-    if (!hasPermission(userProfile.role, 'PRODUCTS_UPDATE')) {
+    // Only SUPER_ADMIN can update settings
+    if (!hasPermission(userProfile.role, 'SETTINGS_UPDATE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

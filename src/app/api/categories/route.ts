@@ -71,47 +71,31 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user profile to check role (but don't block if it doesn't exist)
-    let userProfile;
-    try {
-      userProfile = await prisma.user.findUnique({
-        where: { id: user.id },
-      });
-    } catch (dbError) {
-      console.error('Database error fetching user:', dbError);
-      // Continue - we'll fetch categories anyway
+    const userProfile = await prisma.user.findUnique({
+      where: { id: user.id },
+    });
+
+    if (!userProfile || !userProfile.isActive) {
+      return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
 
-    // Only check permissions if user profile exists and is active
-    // This allows the page to function even if user profile hasn't been created yet
-    if (userProfile) {
-      if (!userProfile.isActive) {
-        return NextResponse.json({ error: 'User not active' }, { status: 403 });
-      }
-
-      if (!hasPermission(userProfile.role, 'PRODUCTS_READ')) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-      }
+    if (!hasPermission(userProfile.role, 'PRODUCTS_READ')) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // Fetch categories - allow even if user profile doesn't exist yet
-    let categories;
-    try {
-      categories = await prisma.category.findMany({
-        orderBy: {
-          name: 'asc',
-        },
-      });
-    } catch (dbError) {
-      console.error('Database error fetching categories:', dbError);
-      // Return empty array instead of error to allow page to function
-      return NextResponse.json([]);
-    }
+    const categories = await prisma.category.findMany({
+      orderBy: {
+        name: 'asc',
+      },
+    });
 
-    return NextResponse.json(categories || []);
+    return NextResponse.json(categories);
   } catch (error) {
     console.error('Error fetching categories:', error);
-    // Return empty array instead of error to allow page to function
-    return NextResponse.json([]);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }

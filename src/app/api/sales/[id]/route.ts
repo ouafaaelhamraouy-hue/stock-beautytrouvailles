@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
 import { calculateSaleTotal } from '@/lib/calculations';
+import { saleSchema } from '@/lib/validations';
+import { z } from 'zod';
 
 export async function GET(
   request: Request,
@@ -86,10 +88,27 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { quantity, pricePerUnit, isPromo, saleDate } = body;
+    const updateSchema = z.object({
+      quantity: z.number().int().min(1).optional(),
+      pricePerUnit: z.number().min(0).optional(),
+      isPromo: z.boolean().optional(),
+      saleDate: z.string().datetime().optional(),
+      notes: z.string().max(500).optional().nullable(),
+    });
+    const parsed = updateSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Invalid request data', details: parsed.error.errors },
+        { status: 400 }
+      );
+    }
+    const { quantity, pricePerUnit, isPromo, saleDate, notes } = parsed.data;
 
     const existingSale = await prisma.sale.findUnique({
       where: { id },
+      include: {
+        product: true,
+      },
     });
 
     if (!existingSale) {
@@ -97,154 +116,126 @@ export async function PUT(
     }
 
     // If quantity changes, we need to adjust stock
-    // For simplicity, we'll revert the old sale and create a new one
-    // This ensures stock integrity
-    if (quantity !== existingSale.quantity) {
-      // Revert old sale stock
+    const quantityDiff = quantity !== undefined ? quantity - existingSale.quantity : 0;
+
+    if (quantityDiff !== 0) {
       const product = await prisma.product.findUnique({
         where: { id: existingSale.productId },
-        include: {
-          shipmentItems: {
-            select: {
-              id: true,
-              quantityRemaining: true,
-              quantitySold: true,
-            },
-          },
-        },
       });
 
       if (!product) {
         return NextResponse.json({ error: 'Product not found' }, { status: 404 });
       }
 
-      // Check if enough stock is available for the new quantity
-      const totalAvailableStock = product.shipmentItems.reduce(
-        (sum, item) => sum + item.quantityRemaining,
-        0
-      );
-      const additionalNeeded = quantity - existingSale.quantity;
+      // Calculate available stock
+      const availableStock = product.quantityReceived - product.quantitySold;
 
-      if (additionalNeeded > totalAvailableStock) {
+      // If increasing quantity, check if enough stock is available
+      if (quantityDiff > 0 && quantityDiff > availableStock) {
         return NextResponse.json(
-          { error: `Insufficient stock. Available: ${totalAvailableStock}, Additional needed: ${additionalNeeded}` },
-          { status: 400 }
+          { error: `Insufficient stock. Available: ${availableStock}, Additional needed: ${quantityDiff}` },
+          { status: 409 }
         );
       }
-
-      // Revert old sale (restore stock)
-      // This is simplified - in a real scenario, you'd track which shipment items were affected
-      // For now, we'll distribute the reversion
-      const sortedItems = [...product.shipmentItems].sort(
-        (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-      );
-
-      let remainingToRestore = existingSale.quantity;
-      const itemsToRestore: Array<{ id: string; quantity: number }> = [];
-
-      for (const item of sortedItems) {
-        if (remainingToRestore <= 0) break;
-        const canRestore = Math.min(remainingToRestore, existingSale.quantity);
-        itemsToRestore.push({
-          id: item.id,
-          quantity: canRestore,
-        });
-        remainingToRestore -= canRestore;
-      }
-
-      await prisma.$transaction([
-        // Restore old stock
-        ...itemsToRestore.map(({ id, quantity: qty }) =>
-          prisma.shipmentItem.update({
-            where: { id },
-            data: {
-              quantitySold: { decrement: qty },
-              quantityRemaining: { increment: qty },
-            },
-          })
-        ),
-      ]);
     }
 
     // Calculate new total amount
-    const totalAmount = calculateSaleTotal(
-      quantity || existingSale.quantity,
-      pricePerUnit !== undefined ? pricePerUnit : existingSale.pricePerUnit
-    );
+    const finalQuantity = quantity !== undefined ? quantity : existingSale.quantity;
+    const finalPricePerUnit = pricePerUnit !== undefined ? pricePerUnit : existingSale.pricePerUnit;
+    const finalNotes = notes !== undefined ? notes : existingSale.notes;
+    const purchasePriceMad = existingSale.product.purchasePriceMad
+      ? Number(existingSale.product.purchasePriceMad)
+      : 0;
 
-    // Update sale
-    const sale = await prisma.sale.update({
-      where: { id },
-      data: {
-        quantity: quantity !== undefined ? quantity : existingSale.quantity,
-        pricePerUnit: pricePerUnit !== undefined ? pricePerUnit : existingSale.pricePerUnit,
-        totalAmount,
-        isPromo: isPromo !== undefined ? isPromo : existingSale.isPromo,
-        saleDate: saleDate ? new Date(saleDate) : existingSale.saleDate,
-      },
-      include: {
-        product: {
-          include: {
-            category: true,
-          },
-        },
-      },
+    // Rule: notes required when selling below cost
+    if (purchasePriceMad > 0 && finalPricePerUnit < purchasePriceMad) {
+      if (!finalNotes || finalNotes.trim().length === 0) {
+        return NextResponse.json(
+          { error: 'Notes are required when selling below cost price' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Validate against saleSchema for consistency
+    const validationResult = saleSchema.safeParse({
+      productId: existingSale.productId,
+      quantity: finalQuantity,
+      pricePerUnit: finalPricePerUnit,
+      isPromo: isPromo !== undefined ? isPromo : existingSale.isPromo,
+      saleDate: saleDate ? new Date(saleDate) : existingSale.saleDate,
+      notes: finalNotes,
     });
+    if (!validationResult.success) {
+      return NextResponse.json(
+        { error: 'Invalid request data', details: validationResult.error.errors },
+        { status: 400 }
+      );
+    }
+    const totalAmount = calculateSaleTotal(finalQuantity, finalPricePerUnit);
 
-    // If quantity changed, update stock for new quantity
-    if (quantity !== existingSale.quantity) {
-      const product = await prisma.product.findUnique({
-        where: { id: existingSale.productId },
+    // Use transaction to ensure atomicity
+    const result = await prisma.$transaction(async (tx) => {
+      // Update product quantitySold if quantity changed
+      if (quantityDiff !== 0) {
+        await tx.product.update({
+          where: { id: existingSale.productId },
+          data: {
+            quantitySold: { increment: quantityDiff },
+          },
+        });
+
+        // Create StockMovement entry
+        const product = await tx.product.findUnique({
+          where: { id: existingSale.productId },
+        });
+
+        if (product) {
+          await tx.stockMovement.create({
+            data: {
+              productId: existingSale.productId,
+              type: 'SALE',
+              quantity: -quantityDiff, // Negative for outbound
+              previousQty: product.quantityReceived - (product.quantitySold - quantityDiff),
+              newQty: product.quantityReceived - product.quantitySold,
+              reference: `Sale ${id} (updated)`,
+              userId: user.id,
+            },
+          });
+        }
+      }
+
+      // Update sale
+      const sale = await tx.sale.update({
+        where: { id },
+        data: {
+          quantity: finalQuantity,
+          pricePerUnit: finalPricePerUnit,
+          totalAmount,
+          isPromo: isPromo !== undefined ? isPromo : existingSale.isPromo,
+          saleDate: saleDate ? new Date(saleDate) : existingSale.saleDate,
+          notes: finalNotes,
+        },
         include: {
-          shipmentItems: {
-            select: {
-              id: true,
-              quantityRemaining: true,
+          product: {
+            include: {
+              category: true,
             },
           },
         },
       });
 
-      if (product) {
-        const quantityDiff = quantity - existingSale.quantity;
-        const sortedItems = [...product.shipmentItems].sort(
-          (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
-        );
+      return sale;
+    });
 
-        let remainingToDeduct = Math.abs(quantityDiff);
-        const itemsToUpdate: Array<{ id: string; quantity: number }> = [];
-
-        for (const item of sortedItems) {
-          if (remainingToDeduct <= 0) break;
-          if (item.quantityRemaining > 0) {
-            const toDeduct = Math.min(remainingToDeduct, item.quantityRemaining);
-            itemsToUpdate.push({
-              id: item.id,
-              quantity: quantityDiff > 0 ? toDeduct : -toDeduct,
-            });
-            remainingToDeduct -= toDeduct;
-          }
-        }
-
-        await prisma.$transaction(
-          itemsToUpdate.map(({ id, quantity: qty }) =>
-            prisma.shipmentItem.update({
-              where: { id },
-              data: {
-                quantitySold: { increment: qty },
-                quantityRemaining: { decrement: qty },
-              },
-            })
-          )
-        );
-      }
-    }
-
-    return NextResponse.json(sale);
-  } catch (error) {
+    return NextResponse.json(result);
+  } catch (error: unknown) {
     console.error('Error updating sale:', error);
+    const errorMessage = process.env.NODE_ENV === 'development'
+      ? (error instanceof Error ? error.message : 'Unknown error')
+      : 'Internal server error';
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: errorMessage },
       { status: 500 }
     );
   }
@@ -280,75 +271,58 @@ export async function DELETE(
 
     const sale = await prisma.sale.findUnique({
       where: { id },
+      include: {
+        product: true,
+      },
     });
 
     if (!sale) {
       return NextResponse.json({ error: 'Sale not found' }, { status: 404 });
     }
 
-    // Restore stock when sale is deleted
-    const product = await prisma.product.findUnique({
-      where: { id: sale.productId },
-      include: {
-        shipmentItems: {
-          select: {
-            id: true,
-            quantityRemaining: true,
-            quantitySold: true,
-          },
+    // Use transaction to restore stock and delete sale
+    await prisma.$transaction(async (tx) => {
+      // Restore stock: decrement quantitySold
+      await tx.product.update({
+        where: { id: sale.productId },
+        data: {
+          quantitySold: { decrement: sale.quantity },
         },
-      },
-    });
+      });
 
-    if (product) {
-      // Distribute stock restoration (simplified - restore to most recent items)
-      const sortedItems = [...product.shipmentItems].sort(
-        (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-      );
+      // Create StockMovement entry for restoration
+      const product = await tx.product.findUnique({
+        where: { id: sale.productId },
+      });
 
-      let remainingToRestore = sale.quantity;
-      const itemsToRestore: Array<{ id: string; quantity: number }> = [];
-
-      for (const item of sortedItems) {
-        if (remainingToRestore <= 0) break;
-        if (item.quantitySold > 0) {
-          const canRestore = Math.min(remainingToRestore, sale.quantity);
-          itemsToRestore.push({
-            id: item.id,
-            quantity: canRestore,
-          });
-          remainingToRestore -= canRestore;
-        }
+      if (product) {
+        await tx.stockMovement.create({
+          data: {
+            productId: sale.productId,
+            type: 'RETURN', // Sale deletion is treated as return
+            quantity: sale.quantity, // Positive for inbound
+            previousQty: product.quantityReceived - (product.quantitySold + sale.quantity),
+            newQty: product.quantityReceived - product.quantitySold,
+            reference: `Sale ${id} (deleted)`,
+            userId: user.id,
+          },
+        });
       }
 
-      await prisma.$transaction([
-        // Restore stock
-        ...itemsToRestore.map(({ id, quantity: qty }) =>
-          prisma.shipmentItem.update({
-            where: { id },
-            data: {
-              quantitySold: { decrement: qty },
-              quantityRemaining: { increment: qty },
-            },
-          })
-        ),
-        // Delete sale
-        prisma.sale.delete({
-          where: { id },
-        }),
-      ]);
-    } else {
-      // Delete sale even if product not found
-      await prisma.sale.delete({
+      // Delete sale
+      await tx.sale.delete({
         where: { id },
       });
-    }
+    });
 
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error deleting sale:', error);
+    const errorMessage = process.env.NODE_ENV === 'development'
+      ? (error instanceof Error ? error.message : 'Unknown error')
+      : 'Internal server error';
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: errorMessage },
       { status: 500 }
     );
   }

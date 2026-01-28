@@ -1,36 +1,38 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   DataGrid,
   GridColDef,
   GridActionsCellItem,
-  GridRowSelectionModel,
   GridToolbar,
+  GridToolbarColumnsButton,
+  GridToolbarDensitySelector,
+  GridToolbarExport,
 } from '@mui/x-data-grid';
-import { Box, Button, IconButton, Chip } from '@mui/material';
+import { Box, Chip, Typography } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
-import AddIcon from '@mui/icons-material/Add';
-import FileDownloadIcon from '@mui/icons-material/FileDownload';
-import { useTranslations } from 'next-intl';
+import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
+import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import InventoryIcon from '@mui/icons-material/Inventory';
 import { toast } from 'sonner';
-import * as XLSX from 'xlsx';
 import { ProductForm } from './ProductForm';
 import { ConfirmDialog } from '@/components/ui';
 import { CurrencyDisplay } from '@/components/ui';
+import { QuickSale } from '@/components/sales/QuickSale';
+import { StockAdjustmentDialog } from './StockAdjustmentDialog';
+import { Dialog, DialogTitle, DialogContent } from '@mui/material';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { hasPermission } from '@/lib/permissions';
 import { useQuery } from '@tanstack/react-query';
-
 import { Product } from '@/hooks/useProducts';
+import type { ProductFormData } from '@/lib/validations';
 
 interface ProductTableItem {
   id: string;
   name: string;
   brand?: string | null;
-  brandId?: string | null;
-  description?: string | null;
   category: {
     id: string;
     name: string;
@@ -44,8 +46,24 @@ interface ProductTableItem {
   quantitySold: number;
   currentStock: number;
   reorderLevel: number;
+  margin?: number;
+  netMargin?: number;
   createdAt: string;
   updatedAt: string;
+}
+
+interface AvailableProduct {
+  id: string;
+  name: string;
+  sellingPriceDh: number;
+  promoPriceDh: number | null;
+  purchasePriceMad: number;
+  availableStock: number;
+  quantityReceived: number;
+  quantitySold: number;
+  category: {
+    name: string;
+  };
 }
 
 interface Category {
@@ -62,26 +80,48 @@ interface ProductsTableProps {
   products: Product[];
   categories: Category[];
   onRefresh: () => void;
+  onRowClick?: (product: Product) => void;
+  selectedProductId?: string | null;
+  onAdjustStock?: (product: Product) => void;
 }
 
-export function ProductsTable({ products, categories, onRefresh }: ProductsTableProps) {
-  const t = useTranslations('common');
-  const tNav = useTranslations('nav');
+const PURCHASE_SOURCE_LABELS: Record<string, string> = {
+  ACTION: 'Action',
+  RITUALS: 'Rituals',
+  NOCIBE: 'Nocibé',
+  LIDL: 'Lidl',
+  CARREFOUR: 'Carrefour',
+  PHARMACIE: 'Pharmacie',
+  AMAZON_FR: 'Amazon FR',
+  SEPHORA: 'Sephora',
+  OTHER: 'Other',
+};
+
+export function ProductsTable({
+  products,
+  categories,
+  onRefresh,
+  onRowClick,
+  selectedProductId,
+  onAdjustStock,
+}: ProductsTableProps) {
   const { profile } = useUserProfile();
-  const [selectedRows, setSelectedRows] = useState<GridRowSelectionModel>([]);
   const [formOpen, setFormOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [sellDialogOpen, setSellDialogOpen] = useState(false);
+  const [adjustStockDialogOpen, setAdjustStockDialogOpen] = useState(false);
   const [productToEdit, setProductToEdit] = useState<ProductTableItem | null>(null);
   const [productToDelete, setProductToDelete] = useState<ProductTableItem | null>(null);
-  const isAdmin = profile?.role === 'ADMIN';
-  
+  const [productToSell, setProductToSell] = useState<ProductTableItem | null>(null);
+  const [productToAdjust, setProductToAdjust] = useState<ProductTableItem | null>(null);
+  const [availableProducts, setAvailableProducts] = useState<AvailableProduct[]>([]);
+  const isAdmin = profile?.role === 'ADMIN' || profile?.role === 'SUPER_ADMIN';
+
   // Transform products to table format
   const tableProducts: ProductTableItem[] = products.map(p => ({
     id: p.id,
     name: p.name,
     brand: p.brand,
-    brandId: null,
-    description: null,
     category: {
       id: p.categoryId,
       name: p.category,
@@ -95,6 +135,8 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
     quantitySold: p.quantitySold,
     currentStock: p.currentStock,
     reorderLevel: p.reorderLevel,
+    margin: p.margin,
+    netMargin: p.netMargin,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
   }));
@@ -112,18 +154,11 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
 
   const brands: Brand[] = brandsData || [];
 
-  const handleCreate = () => {
-    setProductToEdit(null);
-    setFormOpen(true);
-  };
-
   const handleEdit = (product: Product) => {
     const tableProduct: ProductTableItem = {
       id: product.id,
       name: product.name,
       brand: product.brand,
-      brandId: null,
-      description: null,
       category: {
         id: product.categoryId,
         name: product.category,
@@ -137,6 +172,8 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
       quantitySold: product.quantitySold,
       currentStock: product.currentStock,
       reorderLevel: product.reorderLevel,
+      margin: product.margin,
+      netMargin: product.netMargin,
       createdAt: product.createdAt,
       updatedAt: product.updatedAt,
     };
@@ -149,8 +186,6 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
       id: product.id,
       name: product.name,
       brand: product.brand,
-      brandId: null,
-      description: null,
       category: {
         id: product.categoryId,
         name: product.category,
@@ -164,6 +199,8 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
       quantitySold: product.quantitySold,
       currentStock: product.currentStock,
       reorderLevel: product.reorderLevel,
+      margin: product.margin,
+      netMargin: product.netMargin,
       createdAt: product.createdAt,
       updatedAt: product.updatedAt,
     };
@@ -188,29 +225,12 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
       setDeleteDialogOpen(false);
       setProductToDelete(null);
       onRefresh();
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to delete product');
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : 'Failed to delete product');
     }
   };
 
-  const handleBulkDelete = async () => {
-    if (selectedRows.length === 0) return;
-
-    try {
-      const deletePromises = selectedRows.map((id) =>
-        fetch(`/api/products/${id}`, { method: 'DELETE' })
-      );
-
-      await Promise.all(deletePromises);
-      toast.success(`${selectedRows.length} products deleted successfully`);
-      setSelectedRows([]);
-      onRefresh();
-    } catch (error) {
-      toast.error('Failed to delete products');
-    }
-  };
-
-  const handleFormSubmit = async (data: any) => {
+  const handleFormSubmit = async (data: ProductFormData) => {
     const url = productToEdit ? `/api/products/${productToEdit.id}` : '/api/products';
     const method = productToEdit ? 'PATCH' : 'POST';
 
@@ -230,100 +250,88 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
     onRefresh();
   };
 
-  const handleExportCSV = () => {
-    if (products.length === 0) {
-      toast.error('No products to export');
+  const handleSell = async (product: Product) => {
+    // Find the product in table format
+    const tableProduct = tableProducts.find(p => p.id === product.id);
+    if (!tableProduct) {
+      toast.error('Product not found');
       return;
     }
 
-    const csvData = products.map((p) => ({
-      Name: p.name,
-      Brand: p.brand || '',
-      Category: p.category.name,
-      Source: p.purchaseSource,
-      'PA (EUR)': p.purchasePriceEur || '',
-      'PA (MAD)': p.purchasePriceMad,
-      'PV (DH)': p.sellingPriceDh,
-      'Promo (DH)': p.promoPriceDh || '',
-      'Quantity Received': p.quantityReceived,
-      'Quantity Sold': p.quantitySold,
-      'Current Stock': p.currentStock,
-    }));
-
-    const csv = [
-      Object.keys(csvData[0]).join(','),
-      ...csvData.map((row) => Object.values(row).join(',')),
-    ].join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `products-${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
-    toast.success('Products exported to CSV');
-  };
-
-  const handleExportExcel = () => {
-    if (products.length === 0) {
-      toast.error('No products to export');
-      return;
-    }
-
+    // Fetch available products for QuickSale
     try {
-      const excelData = products.map((p) => ({
-        Name: p.name,
-        Brand: p.brand || '',
-        Category: p.category,
-        Source: p.purchaseSource,
-        'PA (EUR)': p.purchasePriceEur || '',
-        'PA (MAD)': p.purchasePriceMad,
-        'PV (DH)': p.sellingPriceDh,
-        'Promo (DH)': p.promoPriceDh || '',
-        'Quantity Received': p.quantityReceived,
-        'Quantity Sold': p.quantitySold,
-        'Current Stock': p.currentStock,
-        'Reorder Level': p.reorderLevel,
-        'Created At': new Date(p.createdAt).toLocaleDateString(),
-      }));
-
-      const ws = XLSX.utils.json_to_sheet(excelData);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Products');
-      XLSX.writeFile(wb, `products-${new Date().toISOString().split('T')[0]}.xlsx`);
-      toast.success('Products exported to Excel');
-    } catch (error) {
-      console.error('Excel export error:', error);
-      toast.error('Failed to export to Excel');
+      const response = await fetch('/api/products/available-stock');
+      if (!response.ok) {
+        throw new Error('Failed to fetch available products');
+      }
+      const data = await response.json();
+      setAvailableProducts(data || []);
+      setProductToSell(tableProduct);
+      setSellDialogOpen(true);
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : 'Failed to load products for sale');
     }
   };
 
-  const PURCHASE_SOURCE_LABELS: Record<string, string> = {
-    ACTION: 'Action',
-    RITUALS: 'Rituals',
-    NOCIBE: 'Nocibé',
-    LIDL: 'Lidl',
-    CARREFOUR: 'Carrefour',
-    PHARMACIE: 'Pharmacie',
-    AMAZON_FR: 'Amazon FR',
-    SEPHORA: 'Sephora',
-    OTHER: 'Autre',
+  const handleSaleComplete = () => {
+    setSellDialogOpen(false);
+    setProductToSell(null);
+    onRefresh(); // Refresh products table
+  };
+
+  const handleAddArrivage = (product: Product) => {
+    // TODO: Open add arrivage dialog/modal
+    toast.info(`Add arrivage for ${product.name} - to be implemented`);
+  };
+
+  const handleAdjustStock = (product: Product) => {
+    if (onAdjustStock) {
+      onAdjustStock(product);
+    } else {
+      // Fallback: use local dialog if no handler provided
+      const tableProduct = tableProducts.find(p => p.id === product.id);
+      if (!tableProduct) {
+        toast.error('Product not found');
+        return;
+      }
+      setProductToAdjust(tableProduct);
+      setAdjustStockDialogOpen(true);
+    }
+  };
+
+  const handleStockAdjustmentSuccess = () => {
+    setAdjustStockDialogOpen(false);
+    setProductToAdjust(null);
+    onRefresh(); // Refresh products table
   };
 
   const columns: GridColDef<ProductTableItem>[] = [
-    { field: 'name', headerName: 'Produit', width: 200, flex: 1 },
+    {
+      field: 'name',
+      headerName: 'Product',
+      width: 250,
+      renderCell: (params) => (
+        <Box
+          sx={{
+            fontWeight: 500,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {params.value}
+        </Box>
+      ),
+    },
     {
       field: 'brand',
-      headerName: 'Marque',
+      headerName: 'Brand',
       width: 120,
       valueGetter: (value) => value || '-',
     },
     {
       field: 'category',
-      headerName: 'Catégorie',
+      headerName: 'Category',
       width: 150,
       valueGetter: (value, row) => row.category.name,
     },
@@ -342,19 +350,18 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
     {
       field: 'purchasePriceEur',
       headerName: 'PA (EUR)',
-      width: 100,
-      renderCell: (params) => (
+      width: 110,
+      renderCell: (params) =>
         params.value ? (
           <CurrencyDisplay amount={params.value} currency="EUR" variant="body2" />
         ) : (
           <span style={{ color: '#999' }}>-</span>
-        )
-      ),
+        ),
     },
     {
       field: 'purchasePriceMad',
       headerName: 'PA (MAD)',
-      width: 100,
+      width: 110,
       renderCell: (params) => (
         <CurrencyDisplay amount={params.value} currency="DH" variant="body2" />
       ),
@@ -362,125 +369,180 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
     {
       field: 'sellingPriceDh',
       headerName: 'PV (DH)',
-      width: 100,
+      width: 110,
       renderCell: (params) => (
         <CurrencyDisplay amount={params.value} currency="DH" variant="body2" />
       ),
     },
     {
       field: 'promoPriceDh',
-      headerName: 'Promo (DH)',
+      headerName: 'Promo',
       width: 110,
-      renderCell: (params) => (
+      renderCell: (params) =>
         params.value ? (
           <CurrencyDisplay amount={params.value} currency="DH" variant="body2" />
         ) : (
           <span style={{ color: '#999' }}>-</span>
-        )
-      ),
+        ),
     },
     {
       field: 'currentStock',
       headerName: 'Stock',
-      width: 100,
+      width: 120,
       renderCell: (params) => {
         const stock = params.value as number;
-        const product = params.row as Product;
-        const isLow = stock <= product.reorderLevel;
+        const product = params.row;
         const isOut = stock === 0;
+        const isLow = stock > 0 && stock <= product.reorderLevel;
+
         return (
-          <Chip
-            label={stock}
-            color={isOut ? 'error' : isLow ? 'warning' : 'success'}
-            size="small"
-          />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Chip
+              label={isOut ? 'Rupture' : isLow ? 'Low' : 'OK'}
+              color={isOut ? 'error' : isLow ? 'warning' : 'success'}
+              size="small"
+              sx={{ fontWeight: 600, minWidth: 70 }}
+            />
+            <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.875rem' }}>
+              {stock}
+            </Typography>
+          </Box>
         );
       },
     },
     {
       field: 'quantitySold',
-      headerName: 'Vendu',
+      headerName: 'Sold',
       width: 100,
+    },
+    {
+      field: 'margin',
+      headerName: 'Margin',
+      width: 100,
+      renderCell: (params) => {
+        const margin = params.value as number | undefined;
+        if (margin === undefined) return <span style={{ color: '#999' }}>-</span>;
+        return (
+          <Chip
+            label={`${margin.toFixed(1)}%`}
+            size="small"
+            color={margin >= 40 ? 'success' : margin >= 30 ? 'warning' : 'error'}
+            sx={{ fontWeight: 600 }}
+          />
+        );
+      },
     },
     {
       field: 'actions',
       type: 'actions',
       headerName: 'Actions',
-      width: 100,
+      width: 140,
       getActions: (params) => {
+        const product = products.find(p => p.id === params.id);
+        if (!product) return [];
+
         const actions = [];
+        
+        // Sell action (available to all)
+        actions.push(
+          <GridActionsCellItem
+            icon={<ShoppingCartIcon />}
+            label="Sell"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleSell(product);
+            }}
+            showInMenu={false}
+          />
+        );
+
+        // Adjust Stock action (available to all - audited)
+        if (hasPermission(profile?.role || 'STAFF', 'STOCK_ADJUST')) {
+          actions.push(
+            <GridActionsCellItem
+              icon={<InventoryIcon />}
+              label="Adjust Stock"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleAdjustStock(product);
+              }}
+              showInMenu={false}
+            />
+          );
+        }
+
+        // Add Arrivage action
+        actions.push(
+          <GridActionsCellItem
+            icon={<LocalShippingIcon />}
+            label="Add Arrivage"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleAddArrivage(product);
+            }}
+            showInMenu={false}
+          />
+        );
+
+        // Edit action (admin only)
         if (isAdmin && hasPermission(profile?.role || 'STAFF', 'PRODUCTS_UPDATE')) {
           actions.push(
             <GridActionsCellItem
               icon={<EditIcon />}
               label="Edit"
-              onClick={() => handleEdit(params.row)}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleEdit(product);
+              }}
+              showInMenu={false}
             />
           );
         }
+
+        // Delete action (admin only)
         if (isAdmin && hasPermission(profile?.role || 'STAFF', 'PRODUCTS_DELETE')) {
           actions.push(
             <GridActionsCellItem
               icon={<DeleteIcon />}
               label="Delete"
-              onClick={() => handleDelete(params.row)}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDelete(product);
+              }}
               showInMenu
             />
           );
         }
+
         return actions;
       },
     },
   ];
 
+  // Custom toolbar without search/filter
+  const CustomToolbar = () => (
+    <GridToolbar>
+      <GridToolbarColumnsButton />
+      <GridToolbarDensitySelector />
+      <GridToolbarExport />
+    </GridToolbar>
+  );
+
   return (
     <Box sx={{ height: '100%', width: '100%' }}>
-      {products.length > 0 && (
-        <Box sx={{ p: 2, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid rgba(0, 0, 0, 0.12)' }}>
-          {isAdmin && hasPermission(profile?.role || 'STAFF', 'PRODUCTS_CREATE') && (
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={handleCreate}
-              sx={{
-                boxShadow: '0 2px 8px rgba(25, 118, 210, 0.3)',
-                '&:hover': {
-                  boxShadow: '0 4px 12px rgba(25, 118, 210, 0.4)',
-                },
-              }}
-            >
-              {t('create')} {tNav('products')}
-            </Button>
-          )}
-          {isAdmin && selectedRows.length > 0 && (
-            <Button
-              variant="outlined"
-              color="error"
-              onClick={handleBulkDelete}
-              sx={{
-                borderColor: 'error.main',
-                '&:hover': {
-                  borderColor: 'error.dark',
-                  backgroundColor: 'error.light',
-                  color: 'white',
-                },
-              }}
-            >
-              Delete Selected ({selectedRows.length})
-            </Button>
-          )}
-        </Box>
-      )}
-
       <DataGrid
         rows={tableProducts}
         columns={columns}
-        checkboxSelection={isAdmin}
-        rowSelectionModel={selectedRows}
-        onRowSelectionModelChange={setSelectedRows}
-        disableRowSelectionOnClick
+        disableRowSelectionOnClick={false}
+        onRowClick={(params) => {
+          const product = products.find(p => p.id === params.id);
+          if (product && onRowClick) {
+            onRowClick(product);
+          }
+        }}
+        rowSelectionModel={selectedProductId ? [selectedProductId] : []}
         slots={{
-          toolbar: GridToolbar,
+          toolbar: CustomToolbar,
         }}
         initialState={{
           pagination: {
@@ -491,7 +553,8 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
         sx={{
           border: 'none',
           '& .MuiDataGrid-cell': {
-            borderBottom: '1px solid rgba(224, 224, 224, 0.5)',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
             '&:focus': {
               outline: 'none',
             },
@@ -501,29 +564,55 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
           },
           '& .MuiDataGrid-row': {
             '&:hover': {
-              backgroundColor: 'rgba(25, 118, 210, 0.04)',
+              backgroundColor: 'action.hover',
+              cursor: 'pointer',
             },
             '&.Mui-selected': {
-              backgroundColor: 'rgba(25, 118, 210, 0.08)',
+              backgroundColor: 'action.selected',
               '&:hover': {
-                backgroundColor: 'rgba(25, 118, 210, 0.12)',
+                backgroundColor: 'action.selected',
               },
+            },
+            // Add subtle left border accent for low/out stock rows
+            '&.MuiDataGrid-row--stock-low': {
+              borderLeft: '3px solid',
+              borderColor: 'warning.main',
+            },
+            '&.MuiDataGrid-row--stock-out': {
+              borderLeft: '3px solid',
+              borderColor: 'error.main',
             },
           },
           '& .MuiDataGrid-columnHeaders': {
-            backgroundColor: 'rgba(0, 0, 0, 0.02)',
-            borderBottom: '2px solid rgba(0, 0, 0, 0.12)',
+            backgroundColor: 'background.default',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
             fontWeight: 600,
           },
           '& .MuiDataGrid-toolbarContainer': {
             padding: '12px 16px',
-            backgroundColor: 'rgba(0, 0, 0, 0.02)',
-            borderBottom: '1px solid rgba(0, 0, 0, 0.12)',
+            backgroundColor: 'background.default',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
           },
           '& .MuiDataGrid-footerContainer': {
-            borderTop: '1px solid rgba(0, 0, 0, 0.12)',
-            backgroundColor: 'rgba(0, 0, 0, 0.02)',
+            borderTop: '1px solid',
+            borderColor: 'divider',
           },
+          // Style for pinned column
+          '& .MuiDataGrid-columnHeader--pinnedLeft': {
+            backgroundColor: 'background.default',
+          },
+          '& .MuiDataGrid-cell--pinnedLeft': {
+            backgroundColor: 'background.paper',
+          },
+        }}
+        getRowClassName={(params) => {
+          const stock = params.row.currentStock;
+          const reorderLevel = params.row.reorderLevel;
+          if (stock === 0) return 'MuiDataGrid-row--stock-out';
+          if (stock <= reorderLevel) return 'MuiDataGrid-row--stock-low';
+          return '';
         }}
       />
 
@@ -537,8 +626,8 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
         initialData={productToEdit ? {
           id: productToEdit.id,
           name: productToEdit.name,
-          brandId: productToEdit.brandId || null,
-          description: productToEdit.description,
+          brandId: null,
+          description: null,
           categoryId: productToEdit.category.id,
           purchaseSource: productToEdit.purchaseSource,
           purchasePriceEur: productToEdit.purchasePriceEur,
@@ -563,6 +652,39 @@ export function ProductsTable({ products, categories, onRefresh }: ProductsTable
         message={`Are you sure you want to delete "${productToDelete?.name}"? This action cannot be undone.`}
         confirmColor="error"
         confirmLabel="Delete"
+      />
+
+      <Dialog
+        open={sellDialogOpen}
+        onClose={() => {
+          setSellDialogOpen(false);
+          setProductToSell(null);
+        }}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Quick Sale - {productToSell?.name}</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <QuickSale
+              products={availableProducts}
+              onSaleComplete={handleSaleComplete}
+              initialProductId={productToSell?.id}
+            />
+          </Box>
+        </DialogContent>
+      </Dialog>
+
+      <StockAdjustmentDialog
+        open={adjustStockDialogOpen}
+        onClose={() => {
+          setAdjustStockDialogOpen(false);
+          setProductToAdjust(null);
+        }}
+        productId={productToAdjust?.id || ''}
+        productName={productToAdjust?.name || ''}
+        currentStock={productToAdjust?.currentStock || 0}
+        onSuccess={handleStockAdjustmentSuccess}
       />
     </Box>
   );

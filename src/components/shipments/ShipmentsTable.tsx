@@ -8,7 +8,7 @@ import {
   GridRowSelectionModel,
   GridToolbar,
 } from '@mui/x-data-grid';
-import { Box, Button, Chip } from '@mui/material';
+import { Box, Button } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
@@ -22,14 +22,14 @@ import { CurrencyDisplay } from '@/components/ui';
 import { StatusBadge } from '@/components/ui';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { hasPermission } from '@/lib/permissions';
+import type { ShipmentFormData } from '@/lib/validations';
+
+type StatusTone = 'success' | 'error' | 'warning' | 'info' | 'default';
 
 interface Shipment {
   id: string;
   reference: string;
-  supplier: {
-    id: string;
-    name: string;
-  };
+  source: string;
   arrivalDate?: string | null;
   status: 'PENDING' | 'IN_TRANSIT' | 'ARRIVED' | 'PROCESSED';
   exchangeRate: number;
@@ -52,18 +52,24 @@ interface Shipment {
   };
 }
 
-interface Supplier {
-  id: string;
-  name: string;
-}
-
 interface ShipmentsTableProps {
   shipments: Shipment[];
-  suppliers: Supplier[];
   onRefresh: () => void;
 }
 
-export function ShipmentsTable({ shipments, suppliers, onRefresh }: ShipmentsTableProps) {
+const PURCHASE_SOURCE_LABELS: Record<string, string> = {
+  ACTION: 'Action',
+  RITUALS: 'Rituals',
+  NOCIBE: 'Nocibé',
+  LIDL: 'Lidl',
+  CARREFOUR: 'Carrefour',
+  PHARMACIE: 'Pharmacie',
+  AMAZON_FR: 'Amazon FR',
+  SEPHORA: 'Sephora',
+  OTHER: 'Other',
+};
+
+export function ShipmentsTable({ shipments, onRefresh }: ShipmentsTableProps) {
   const t = useTranslations('common');
   const tNav = useTranslations('nav');
   const tShipments = useTranslations('shipments');
@@ -113,19 +119,31 @@ export function ShipmentsTable({ shipments, suppliers, onRefresh }: ShipmentsTab
       setDeleteDialogOpen(false);
       setShipmentToDelete(null);
       onRefresh();
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to delete shipment');
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : 'Failed to delete shipment');
     }
   };
 
-  const handleFormSubmit = async (data: any) => {
+  const handleFormSubmit = async (data: ShipmentFormData & { status: string }) => {
     const url = shipmentToEdit ? `/api/shipments/${shipmentToEdit.id}` : '/api/shipments';
     const method = shipmentToEdit ? 'PUT' : 'POST';
+
+    // Map form data to API format
+    const apiData = {
+      reference: data.reference,
+      source: data.source,
+      arrivalDate: data.arrivalDate,
+      status: data.status,
+      exchangeRate: data.exchangeRate,
+      shippingCostEur: data.shippingCostEUR,
+      customsCostEUR: data.customsCostEUR,
+      packagingCostEur: data.packagingCostEUR,
+    };
 
     const response = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify(apiData),
     });
 
     if (!response.ok) {
@@ -149,21 +167,35 @@ export function ShipmentsTable({ shipments, suppliers, onRefresh }: ShipmentsTab
     return labels[status] || status;
   };
 
+  const getStatusTone = (status: string): StatusTone => {
+    switch (status) {
+      case 'PENDING':
+        return 'warning';
+      case 'IN_TRANSIT':
+        return 'info';
+      case 'ARRIVED':
+      case 'PROCESSED':
+        return 'success';
+      default:
+        return 'default';
+    }
+  };
+
   const columns: GridColDef[] = [
     { field: 'reference', headerName: tShipments('reference'), width: 150, flex: 0 },
     {
-      field: 'supplier',
-      headerName: tShipments('supplier'),
+      field: 'source',
+      headerName: 'Purchase Source',
       width: 200,
       flex: 1,
-      valueGetter: (value, row) => row.supplier.name,
+      valueGetter: (value, row) => PURCHASE_SOURCE_LABELS[row.source] || row.source,
     },
     {
       field: 'status',
       headerName: tShipments('status'),
       width: 130,
       renderCell: (params) => (
-        <StatusBadge label={getStatusLabel(params.value)} status={params.value.toLowerCase().replace('_', '-') as any} />
+        <StatusBadge label={getStatusLabel(params.value)} status={getStatusTone(params.value)} />
       ),
     },
     {
@@ -318,7 +350,6 @@ export function ShipmentsTable({ shipments, suppliers, onRefresh }: ShipmentsTab
         }}
         onSubmit={handleFormSubmit}
         initialData={shipmentToEdit || undefined}
-        suppliers={suppliers}
       />
 
       <ConfirmDialog

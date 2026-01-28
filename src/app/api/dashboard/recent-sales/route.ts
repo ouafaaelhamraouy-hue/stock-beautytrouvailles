@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
-import { hasPermission } from '@/lib/permissions';
 
 /**
  * Get recent sales (last 10)

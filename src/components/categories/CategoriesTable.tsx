@@ -8,7 +8,7 @@ import {
   GridRowSelectionModel,
   GridToolbar,
 } from '@mui/x-data-grid';
-import { Box, Button, IconButton } from '@mui/material';
+import { Box, Button } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
@@ -18,6 +18,7 @@ import { CategoryForm } from './CategoryForm';
 import { ConfirmDialog } from '@/components/ui';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { hasPermission } from '@/lib/permissions';
+import type { CategoryFormData } from '@/lib/validations';
 
 interface Category {
   id: string;
@@ -75,12 +76,12 @@ export function CategoriesTable({ categories, onRefresh }: CategoriesTableProps)
       setDeleteDialogOpen(false);
       setCategoryToDelete(null);
       onRefresh();
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to delete category');
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : 'Failed to delete category');
     }
   };
 
-  const handleFormSubmit = async (data: any) => {
+  const handleFormSubmit = async (data: CategoryFormData) => {
     const url = categoryToEdit ? `/api/categories/${categoryToEdit.id}` : '/api/categories';
     const method = categoryToEdit ? 'PUT' : 'POST';
 

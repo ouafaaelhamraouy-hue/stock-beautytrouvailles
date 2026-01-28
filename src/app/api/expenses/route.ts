@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 import { hasPermission } from '@/lib/permissions';
 
 export async function GET(request: Request) {
@@ -29,15 +30,20 @@ export async function GET(request: Request) {
 
     // Get query parameters
     const { searchParams } = new URL(request.url);
-    const shipmentId = searchParams.get('shipmentId');
+    const arrivageId = searchParams.get('arrivageId') || searchParams.get('shipmentId'); // Support both for backward compatibility
     const type = searchParams.get('type');
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
+    const limitParam = parseInt(searchParams.get('limit') || '100');
+    const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 200) : 100;
+    const sortParam = searchParams.get('sort') || 'date';
+    const allowedSorts = new Set(['date', 'createdAt', 'updatedAt']);
+    const sort = allowedSorts.has(sortParam) ? sortParam : 'date';
 
     // Build where clause
-    const where: any = {};
-    if (shipmentId) {
-      where.shipmentId = shipmentId;
+    const where: Prisma.ExpenseWhereInput = {};
+    if (arrivageId) {
+      where.arrivageId = arrivageId;
     }
     if (type) {
       where.type = type;
@@ -55,18 +61,28 @@ export async function GET(request: Request) {
     const expenses = await prisma.expense.findMany({
       where,
       include: {
-        shipment: {
-          include: {
-            supplier: true,
-          },
-        },
+        arrivage: true,
       },
       orderBy: {
-        date: 'desc',
+        [sort]: 'desc',
       },
+      take: limit,
     });
 
-    return NextResponse.json(expenses);
+    // Format response to match expected structure (with shipment for backward compatibility)
+    const formattedExpenses = expenses.map((expense) => ({
+      ...expense,
+      shipmentId: expense.arrivageId,
+      shipment: expense.arrivage ? {
+        id: expense.arrivage.id,
+        reference: expense.arrivage.reference,
+        supplier: {
+          name: expense.arrivage.source, // Using source as supplier name
+        },
+      } : null,
+    }));
+
+    return NextResponse.json(formattedExpenses);
   } catch (error) {
     console.error('Error fetching expenses:', error);
     return NextResponse.json(
@@ -101,16 +117,19 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { date, amountEUR, amountDH, description, type, shipmentId } = body;
+    const { date, amountEUR, amountDH, description, type, shipmentId, arrivageId } = body;
 
-    // Verify shipment exists if provided
-    if (shipmentId) {
-      const shipment = await prisma.shipment.findUnique({
-        where: { id: shipmentId },
+    // Support both shipmentId (for backward compatibility) and arrivageId
+    const finalArrivageId = arrivageId || shipmentId;
+
+    // Verify arrivage exists if provided
+    if (finalArrivageId) {
+      const arrivage = await prisma.arrivage.findUnique({
+        where: { id: finalArrivageId },
       });
 
-      if (!shipment) {
-        return NextResponse.json({ error: 'Shipment not found' }, { status: 404 });
+      if (!arrivage) {
+        return NextResponse.json({ error: 'Arrivage not found' }, { status: 404 });
       }
     }
 
@@ -121,18 +140,27 @@ export async function POST(request: Request) {
         amountDH,
         description,
         type,
-        shipmentId: shipmentId || null,
+        arrivageId: finalArrivageId || null,
       },
       include: {
-        shipment: {
-          include: {
-            supplier: true,
-          },
-        },
+        arrivage: true,
       },
     });
 
-    return NextResponse.json(expense, { status: 201 });
+    // Format response
+    const formattedExpense = {
+      ...expense,
+      shipmentId: expense.arrivageId,
+      shipment: expense.arrivage ? {
+        id: expense.arrivage.id,
+        reference: expense.arrivage.reference,
+        supplier: {
+          name: expense.arrivage.source,
+        },
+      } : null,
+    };
+
+    return NextResponse.json(formattedExpense, { status: 201 });
   } catch (error) {
     console.error('Error creating expense:', error);
     return NextResponse.json(

@@ -103,8 +103,8 @@ export function ShipmentItemForm({
       reset();
       setSelectedProductId('');
       onClose();
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to save shipment item');
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save shipment item');
       console.error(error);
     }
   };

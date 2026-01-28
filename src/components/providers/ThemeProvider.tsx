@@ -49,7 +49,7 @@ export function ThemeProvider({ children, locale = 'en' }: ThemeProviderProps) {
       // Use system preference if no saved preference
       setModeState(prefersDarkMode ? 'dark' : 'light');
     }
-  }, []); // Only run on mount
+  }, [prefersDarkMode]); // Run on mount and when system preference changes
 
   // Listen for system preference changes (only if no manual preference is set)
   useEffect(() => {

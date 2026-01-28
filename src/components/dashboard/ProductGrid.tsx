@@ -4,31 +4,13 @@ import { useState, useCallback, useMemo, memo } from 'react';
 import {
   DataGrid,
   GridColDef,
-  GridRowParams,
   GridCellEditStopParams,
-  GridActionsCellItem,
   GridToolbar,
-  GridRenderCellParams,
 } from '@mui/x-data-grid';
-import { Box, Chip, IconButton, Tooltip, Skeleton } from '@mui/material';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
-import { useProducts, useUpdateProduct, useBulkUpdateProducts, Product } from '@/hooks/useProducts';
-import { getMarginColor } from '@/lib/calculations';
+import { Box, Skeleton } from '@mui/material';
+import { useProducts, useUpdateProduct, Product } from '@/hooks/useProducts';
 import { toast } from 'sonner';
-import { useTranslations } from 'next-intl';
 
-const PURCHASE_SOURCE_LABELS: Record<string, string> = {
-  ACTION: 'Action',
-  RITUALS: 'Rituals',
-  NOCIBE: 'Nocibé',
-  LIDL: 'Lidl',
-  CARREFOUR: 'Carrefour',
-  PHARMACIE: 'Pharmacie',
-  AMAZON_FR: 'Amazon FR',
-  SEPHORA: 'Sephora',
-  OTHER: 'Autre',
-};
 
 interface ProductGridProps {
   categoryId?: string;
@@ -45,7 +27,6 @@ export const ProductGrid = memo(function ProductGrid({
   stockFilter,
   onProductClick,
 }: ProductGridProps) {
-  const t = useTranslations('common');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(20);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
@@ -60,7 +41,6 @@ export const ProductGrid = memo(function ProductGrid({
   });
 
   const updateProduct = useUpdateProduct();
-  const bulkUpdate = useBulkUpdateProducts();
 
   const handleCellEditStop = useCallback(
     async (params: GridCellEditStopParams) => {
@@ -78,22 +58,14 @@ export const ProductGrid = memo(function ProductGrid({
           [field]: value,
         });
         toast.success('Product updated successfully');
-      } catch (error: any) {
-        toast.error(error.message || 'Failed to update product');
+      } catch (error: unknown) {
+        toast.error(error instanceof Error ? error.message : 'Failed to update product');
         // Refetch to restore original value
         refetch();
       }
     },
     [data, updateProduct, refetch]
   );
-
-  const handleBulkEdit = useCallback(async () => {
-    if (selectedRows.length === 0) return;
-
-    // Example: Bulk update selling price
-    // You can extend this to show a dialog for bulk edits
-    toast.info('Bulk edit feature coming soon');
-  }, [selectedRows]);
 
   const columns: GridColDef<Product>[] = useMemo(
     () => [
@@ -305,9 +277,7 @@ export const ProductGrid = memo(function ProductGrid({
             onProductClick(params.row);
           }
         }}
-        processRowUpdate={(newRow, oldRow) => {
-          return newRow;
-        }}
+        processRowUpdate={(newRow) => newRow}
         onProcessRowUpdateError={(error) => {
           toast.error('Error updating row: ' + error.message);
         }}

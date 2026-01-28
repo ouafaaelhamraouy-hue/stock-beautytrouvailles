@@ -1,15 +1,16 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
+import { hasPermission, canManageRoles } from '@/lib/permissions';
+import { UserRole } from '@prisma/client';
 
 /**
- * API route to create an admin user
+ * API route to update a user's role
  * 
  * POST /api/admin/create-admin
- * Body: { email: string }
+ * Body: { email: string, role?: 'ADMIN' | 'STAFF' | 'SUPER_ADMIN' }
  * 
- * Requires authentication - only existing admins can create new admins
- * Or you can call this directly after creating a user in Supabase Auth
+ * Requires authentication and USERS_MANAGE_ROLES permission
  */
 export async function POST(request: Request) {
   try {
@@ -26,25 +27,50 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check if current user is admin (optional - remove this check if you want to allow anyone to create admin)
+    // Check if current user has permission to manage roles
     const currentUserProfile = await prisma.user.findUnique({
       where: { id: currentUser.id },
     });
 
-    // Optional: Uncomment to restrict admin creation to existing admins
-    // if (currentUserProfile?.role !== 'ADMIN') {
-    //   return NextResponse.json(
-    //     { error: 'Forbidden: Only admins can create admin users' },
-    //     { status: 403 }
-    //   );
-    // }
+    if (!currentUserProfile || !currentUserProfile.isActive) {
+      return NextResponse.json(
+        { error: 'User not active' },
+        { status: 403 }
+      );
+    }
 
-    const { email } = await request.json();
+    // Only users with USERS_MANAGE_ROLES permission can manage roles
+    if (!hasPermission(currentUserProfile.role, 'USERS_MANAGE_ROLES')) {
+      return NextResponse.json(
+        { error: 'Forbidden: Only super admins can manage user roles' },
+        { status: 403 }
+      );
+    }
+
+    const body = await request.json();
+    const { email, role = 'ADMIN' } = body;
 
     if (!email) {
       return NextResponse.json(
         { error: 'Email is required' },
         { status: 400 }
+      );
+    }
+
+    // Validate role
+    const validRoles: UserRole[] = ['SUPER_ADMIN', 'ADMIN', 'STAFF'];
+    if (!validRoles.includes(role as UserRole)) {
+      return NextResponse.json(
+        { error: `Invalid role. Must be one of: ${validRoles.join(', ')}` },
+        { status: 400 }
+      );
+    }
+
+    // Check if current user can assign the target role
+    if (!canManageRoles(currentUserProfile.role)) {
+      return NextResponse.json(
+        { error: 'You do not have permission to assign this role' },
+        { status: 403 }
       );
     }
 
@@ -60,10 +86,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // Update user role to ADMIN
+    // Update user role
     const updatedUser = await prisma.user.update({
       where: { email },
-      data: { role: 'ADMIN' },
+      data: { role: role as UserRole },
     });
 
     return NextResponse.json({
@@ -75,7 +101,7 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    console.error('Error creating admin:', error);
+    console.error('Error updating user role:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

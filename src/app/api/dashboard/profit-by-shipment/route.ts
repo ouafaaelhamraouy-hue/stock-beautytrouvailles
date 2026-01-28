@@ -4,8 +4,8 @@ import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
 
 /**
- * Get profit by shipment
- * Calculates revenue from sales linked to shipment items
+ * Get profit by arrivage
+ * Calculates revenue from sales linked to products in each arrivage
  */
 export async function GET() {
   try {
@@ -27,13 +27,18 @@ export async function GET() {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
 
-    // Get all shipments with items
-    const shipments = await prisma.shipment.findMany({
+    if (!hasPermission(userProfile.role, 'DASHBOARD_READ')) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    // Get all arrivages with their products
+    const arrivages = await prisma.arrivage.findMany({
       include: {
-        supplier: true,
-        items: {
+        products: {
           include: {
-            product: true,
+            category: true,
+            brand: true,
+            sales: true,
           },
         },
       },
@@ -42,82 +47,73 @@ export async function GET() {
       },
     });
 
-    // Get all sales to calculate revenue per product
-    const sales = await prisma.sale.findMany({
-      include: {
-        product: true,
-      },
-    });
+    // Calculate profit for each arrivage
+    const arrivageProfits = arrivages.map((arrivage) => {
+      // Calculate total cost (from arrivage)
+      const totalCostEur = Number(arrivage.totalCostEur) || 0;
+      const totalCostDh = Number(arrivage.totalCostDh) || 0;
+      const exchangeRate = Number(arrivage.exchangeRate) || 10.85;
 
-    // Group sales by product for revenue calculation
-    const productRevenue = sales.reduce((acc, sale) => {
-      if (!acc[sale.productId]) {
-        acc[sale.productId] = {
-          totalRevenue: 0,
-          totalQuantitySold: 0,
-        };
-      }
-      acc[sale.productId].totalRevenue += sale.totalAmount;
-      acc[sale.productId].totalQuantitySold += sale.quantity;
-      return acc;
-    }, {} as Record<string, { totalRevenue: number; totalQuantitySold: number }>);
-
-    // Calculate profit for each shipment
-    const shipmentProfits = shipments.map((shipment) => {
-      // Calculate shipment cost
-      const itemsCostEUR = shipment.items.reduce(
-        (sum, item) => sum + item.quantity * item.costPerUnitEUR,
-        0
-      );
-      const totalCostEUR = shipment.shippingCostEUR +
-        shipment.customsCostEUR +
-        shipment.packagingCostEUR +
-        itemsCostEUR;
-      const totalCostDH = totalCostEUR * shipment.exchangeRate;
-
-      // Calculate revenue from this shipment (simplified - distribute revenue by quantity sold)
-      // This is a simplified calculation - in reality, we'd need to track which sale came from which shipment item
-      let totalRevenueEUR = 0;
+      // Calculate total revenue from sales of products in this arrivage
+      let totalRevenueDh = 0;
       let totalQuantitySold = 0;
+      let totalCostOfGoodsSoldDh = 0;
 
-      shipment.items.forEach((item) => {
-        const productStats = productRevenue[item.productId];
-        if (productStats) {
-          // Distribute revenue proportionally based on quantity sold from this item
-          const itemRevenueRatio = item.quantitySold / productStats.totalQuantitySold;
-          totalRevenueEUR += productStats.totalRevenue * itemRevenueRatio;
-          totalQuantitySold += item.quantitySold;
-        }
+      arrivage.products.forEach((product) => {
+        const productSales = product.sales || [];
+        const purchasePriceMad = Number(product.purchasePriceMad) || 0;
+        
+        productSales.forEach((sale) => {
+          totalRevenueDh += Number(sale.totalAmount) || 0;
+          totalQuantitySold += sale.quantity;
+          // Cost of goods sold for this sale
+          totalCostOfGoodsSoldDh += sale.quantity * purchasePriceMad;
+        });
       });
 
-      const totalRevenueDH = totalRevenueEUR * shipment.exchangeRate;
-      const profitEUR = totalRevenueEUR - totalCostEUR;
-      const profitDH = totalRevenueDH - totalCostDH;
-      const marginPercent = totalCostEUR > 0
-        ? ((profitEUR / totalCostEUR) * 100)
+      // Calculate gross profit (revenue - cost of goods sold)
+      const grossProfitDh = totalRevenueDh - totalCostOfGoodsSoldDh;
+      
+      // Calculate net profit (gross profit - overhead costs like shipping, packaging)
+      // Allocate overhead costs proportionally based on quantity sold
+      const totalUnits = arrivage.totalUnits || 1;
+      const overheadPerUnit = totalUnits > 0 ? totalCostDh / totalUnits : 0;
+      const allocatedOverhead = overheadPerUnit * totalQuantitySold;
+      const netProfitDh = grossProfitDh - allocatedOverhead;
+      
+      // Convert to EUR for reporting
+      const grossProfitEur = grossProfitDh / exchangeRate;
+      const netProfitEur = netProfitDh / exchangeRate;
+
+      // Calculate margin percentage
+      const marginPercent = totalRevenueDh > 0
+        ? ((grossProfitDh / totalRevenueDh) * 100)
         : 0;
 
       return {
-        shipmentId: shipment.id,
-        reference: shipment.reference,
-        supplier: shipment.supplier.name,
-        status: shipment.status,
-        arrivalDate: shipment.arrivalDate,
-        totalCostEUR,
-        totalCostDH,
-        totalRevenueEUR,
-        totalRevenueDH,
-        profitEUR,
-        profitDH,
+        arrivageId: arrivage.id,
+        reference: arrivage.reference,
+        source: arrivage.source,
+        status: arrivage.status,
+        receivedDate: arrivage.receivedDate,
+        purchaseDate: arrivage.purchaseDate,
+        totalCostEur,
+        totalCostDh,
+        totalRevenueDh,
+        totalRevenueEur: totalRevenueDh / exchangeRate,
+        grossProfitDh,
+        grossProfitEur,
+        netProfitDh,
+        netProfitEur,
         marginPercent,
-        itemsCount: shipment.items.length,
+        productCount: arrivage.productCount || arrivage.products.length,
         totalQuantitySold,
       };
     });
 
-    return NextResponse.json(shipmentProfits);
+    return NextResponse.json(arrivageProfits);
   } catch (error) {
-    console.error('Error fetching profit by shipment:', error);
+    console.error('Error fetching profit by arrivage:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

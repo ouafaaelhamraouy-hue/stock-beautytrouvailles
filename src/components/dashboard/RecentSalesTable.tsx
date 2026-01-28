@@ -11,12 +11,10 @@ import {
   Box,
   Typography,
   Chip,
-  Link,
 } from '@mui/material';
 import { useTranslations } from 'next-intl';
 import { useRouter } from '@/i18n/routing';
 import { CurrencyDisplay } from '@/components/ui';
-import { StatusBadge } from '@/components/ui';
 
 interface Sale {
   id: string;

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 import { hasPermission } from '@/lib/permissions';
 import { calculateMargin, calculateCurrentStock } from '@/lib/calculations';
 
@@ -36,7 +37,7 @@ export async function GET(request: Request) {
     const search = searchParams.get('search');
 
     // Build where clause for products
-    const productWhere: any = {
+    const productWhere: Prisma.ProductWhereInput = {
       isActive: true,
     };
 
@@ -75,6 +76,7 @@ export async function GET(request: Request) {
           select: {
             id: true,
             name: true,
+            brandId: true,
             purchasePriceEur: true,
             purchasePriceMad: true,
             sellingPriceDh: true,
@@ -161,7 +163,7 @@ export async function GET(request: Request) {
     });
 
     return NextResponse.json({ arrivages: arrivagesWithSummary });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching inventory by shipment:', error);
     return NextResponse.json(
       { error: 'Internal server error' },

@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 import { hasPermission } from '@/lib/permissions';
 
 /**
  * Get available stock for products
- * Returns products with their available stock (quantityRemaining from shipment items)
+ * Returns products with their available stock (quantityReceived - quantitySold)
  */
 export async function GET(request: Request) {
   try {
@@ -36,23 +37,16 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const productId = searchParams.get('productId');
 
-    const where: any = {};
+    const where: Prisma.ProductWhereInput = {};
     if (productId) {
       where.id = productId;
     }
 
-    // Get products with their shipment items
+    // Get products with category
     const products = await prisma.product.findMany({
       where,
       include: {
         category: true,
-        shipmentItems: {
-          select: {
-            quantityRemaining: true,
-            costPerUnitEUR: true,
-            costPerUnitDH: true,
-          },
-        },
       },
       orderBy: {
         name: 'asc',
@@ -61,33 +55,24 @@ export async function GET(request: Request) {
 
     // Calculate available stock for each product
     const productsWithStock = products.map((product) => {
-      const totalAvailableStock = product.shipmentItems.reduce(
-        (sum, item) => sum + item.quantityRemaining,
-        0
-      );
-
-      // Get average cost (for display purposes)
-      const totalItems = product.shipmentItems.length;
-      const avgCostEUR = totalItems > 0
-        ? product.shipmentItems.reduce((sum, item) => sum + item.costPerUnitEUR, 0) / totalItems
-        : 0;
+      // Available stock = quantityReceived - quantitySold
+      const availableStock = product.quantityReceived - product.quantitySold;
 
       return {
         id: product.id,
-        sku: product.sku,
         name: product.name,
-        description: product.description,
         category: product.category,
-        basePriceEUR: product.basePriceEUR,
-        basePriceDH: product.basePriceDH,
-        availableStock: totalAvailableStock,
-        avgCostEUR,
-        hasStock: totalAvailableStock > 0,
+        sellingPriceDh: product.sellingPriceDh ? Number(product.sellingPriceDh) : 0,
+        promoPriceDh: product.promoPriceDh ? Number(product.promoPriceDh) : null,
+        purchasePriceMad: product.purchasePriceMad ? Number(product.purchasePriceMad) : 0,
+        availableStock: Math.max(0, availableStock), // Ensure non-negative
+        quantityReceived: product.quantityReceived,
+        quantitySold: product.quantitySold,
+        hasStock: availableStock > 0,
       };
     });
 
-    // Filter to only products with available stock if needed
-    // For sales, we typically want to show only products with stock
+    // Filter to only products with available stock
     const filteredProducts = productsWithStock.filter((p) => p.hasStock);
 
     return NextResponse.json(filteredProducts);

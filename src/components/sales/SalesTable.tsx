@@ -13,7 +13,6 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import ReceiptIcon from '@mui/icons-material/Receipt';
-import VisibilityIcon from '@mui/icons-material/Visibility';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { useRouter } from '@/i18n/routing';
@@ -22,6 +21,7 @@ import { ConfirmDialog } from '@/components/ui';
 import { CurrencyDisplay } from '@/components/ui';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { hasPermission } from '@/lib/permissions';
+import type { SaleFormData } from '@/lib/validations';
 
 interface Sale {
   id: string;
@@ -110,12 +110,12 @@ export function SalesTable({ sales, products, onRefresh }: SalesTableProps) {
       setDeleteDialogOpen(false);
       setSaleToDelete(null);
       onRefresh();
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to delete sale');
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : 'Failed to delete sale');
     }
   };
 
-  const handleFormSubmit = async (data: any) => {
+  const handleFormSubmit = async (data: SaleFormData) => {
     const url = saleToEdit ? `/api/sales/${saleToEdit.id}` : '/api/sales';
     const method = saleToEdit ? 'PUT' : 'POST';
 

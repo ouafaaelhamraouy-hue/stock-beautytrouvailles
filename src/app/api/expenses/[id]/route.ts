@@ -34,11 +34,7 @@ export async function GET(
     const expense = await prisma.expense.findUnique({
       where: { id },
       include: {
-        shipment: {
-          include: {
-            supplier: true,
-          },
-        },
+        arrivage: true,
       },
     });
 
@@ -46,7 +42,20 @@ export async function GET(
       return NextResponse.json({ error: 'Expense not found' }, { status: 404 });
     }
 
-    return NextResponse.json(expense);
+    // Format response
+    const formattedExpense = {
+      ...expense,
+      shipmentId: expense.arrivageId,
+      shipment: expense.arrivage ? {
+        id: expense.arrivage.id,
+        reference: expense.arrivage.reference,
+        supplier: {
+          name: expense.arrivage.source,
+        },
+      } : null,
+    };
+
+    return NextResponse.json(formattedExpense);
   } catch (error) {
     console.error('Error fetching expense:', error);
     return NextResponse.json(
@@ -85,7 +94,10 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { date, amountEUR, amountDH, description, type, shipmentId } = body;
+    const { date, amountEUR, amountDH, description, type, shipmentId, arrivageId } = body;
+
+    // Support both shipmentId (for backward compatibility) and arrivageId
+    const finalArrivageId = arrivageId || shipmentId;
 
     const existingExpense = await prisma.expense.findUnique({
       where: { id },
@@ -95,14 +107,14 @@ export async function PUT(
       return NextResponse.json({ error: 'Expense not found' }, { status: 404 });
     }
 
-    // Verify shipment exists if provided
-    if (shipmentId) {
-      const shipment = await prisma.shipment.findUnique({
-        where: { id: shipmentId },
+    // Verify arrivage exists if provided
+    if (finalArrivageId !== undefined && finalArrivageId !== null) {
+      const arrivage = await prisma.arrivage.findUnique({
+        where: { id: finalArrivageId },
       });
 
-      if (!shipment) {
-        return NextResponse.json({ error: 'Shipment not found' }, { status: 404 });
+      if (!arrivage) {
+        return NextResponse.json({ error: 'Arrivage not found' }, { status: 404 });
       }
     }
 
@@ -114,18 +126,27 @@ export async function PUT(
         amountDH: amountDH !== undefined ? amountDH : existingExpense.amountDH,
         description: description || existingExpense.description,
         type: type || existingExpense.type,
-        shipmentId: shipmentId !== undefined ? (shipmentId || null) : existingExpense.shipmentId,
+        arrivageId: finalArrivageId !== undefined ? (finalArrivageId || null) : existingExpense.arrivageId,
       },
       include: {
-        shipment: {
-          include: {
-            supplier: true,
-          },
-        },
+        arrivage: true,
       },
     });
 
-    return NextResponse.json(expense);
+    // Format response
+    const formattedExpense = {
+      ...expense,
+      shipmentId: expense.arrivageId,
+      shipment: expense.arrivage ? {
+        id: expense.arrivage.id,
+        reference: expense.arrivage.reference,
+        supplier: {
+          name: expense.arrivage.source,
+        },
+      } : null,
+    };
+
+    return NextResponse.json(formattedExpense);
   } catch (error) {
     console.error('Error updating expense:', error);
     return NextResponse.json(

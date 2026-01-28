@@ -20,10 +20,10 @@ import { expenseSchema, type ExpenseFormData } from '@/lib/validations';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
-interface Shipment {
+interface Arrivage {
   id: string;
   reference: string;
-  supplier: {
+  supplier?: {
     name: string;
   };
 }
@@ -31,7 +31,7 @@ interface Shipment {
 interface ExpenseFormProps {
   open: boolean;
   onClose: () => void;
-  onSubmit: (data: any) => Promise<void>;
+  onSubmit: (data: ExpenseFormData & { shipmentId?: string }) => Promise<void>;
   initialData?: {
     id: string;
     date: string;
@@ -41,7 +41,7 @@ interface ExpenseFormProps {
     type: string;
     shipmentId?: string | null;
   };
-  shipments: Shipment[];
+  shipments: Arrivage[];
   exchangeRate?: number;
   loading?: boolean;
 }
@@ -58,7 +58,6 @@ export function ExpenseForm({
   const t = useTranslations('common');
   const tExpenses = useTranslations('expenses');
   const [expenseDate, setExpenseDate] = useState<Date | null>(new Date());
-  const [amountEUR, setAmountEUR] = useState(0);
 
   const {
     register,
@@ -71,11 +70,15 @@ export function ExpenseForm({
     resolver: zodResolver(expenseSchema),
     defaultValues: initialData ? {
       date: new Date(initialData.date),
-      amountEUR: initialData.amountEUR,
-      amountDH: initialData.amountDH,
+      amountEUR: typeof initialData.amountEUR === 'object' && 'toNumber' in initialData.amountEUR
+        ? initialData.amountEUR.toNumber()
+        : initialData.amountEUR,
+      amountDH: typeof initialData.amountDH === 'object' && 'toNumber' in initialData.amountDH
+        ? initialData.amountDH.toNumber()
+        : initialData.amountDH,
       description: initialData.description,
-      type: initialData.type as 'OPERATIONAL' | 'MARKETING' | 'UTILITIES' | 'OTHER',
-      shipmentId: initialData.shipmentId || undefined,
+      type: initialData.type as 'OPERATIONAL' | 'MARKETING' | 'UTILITIES' | 'PACKAGING' | 'SHIPPING' | 'ADS' | 'OTHER',
+      shipmentId: initialData.shipmentId || initialData.arrivageId || undefined,
     } : {
       date: new Date(),
       amountEUR: 0,
@@ -93,7 +96,6 @@ export function ExpenseForm({
     if (amountEURValue && amountEURValue > 0) {
       const dh = amountEURValue * exchangeRate;
       setValue('amountDH', dh, { shouldValidate: true });
-      setAmountEUR(amountEURValue);
     }
   }, [amountEURValue, setValue, exchangeRate]);
 
@@ -101,14 +103,17 @@ export function ExpenseForm({
     if (initialData) {
       reset({
         date: new Date(initialData.date),
-        amountEUR: initialData.amountEUR,
-        amountDH: initialData.amountDH,
+        amountEUR: typeof initialData.amountEUR === 'object' && 'toNumber' in initialData.amountEUR
+          ? initialData.amountEUR.toNumber()
+          : initialData.amountEUR,
+        amountDH: typeof initialData.amountDH === 'object' && 'toNumber' in initialData.amountDH
+          ? initialData.amountDH.toNumber()
+          : initialData.amountDH,
         description: initialData.description,
-        type: initialData.type as any,
-        shipmentId: initialData.shipmentId || undefined,
+        type: initialData.type as ExpenseFormData['type'],
+        shipmentId: initialData.shipmentId || initialData.arrivageId || undefined,
       });
       setExpenseDate(new Date(initialData.date));
-      setAmountEUR(initialData.amountEUR);
     } else {
       reset({
         date: new Date(),
@@ -119,11 +124,10 @@ export function ExpenseForm({
         shipmentId: undefined,
       });
       setExpenseDate(new Date());
-      setAmountEUR(0);
     }
   }, [initialData, reset]);
 
-  const handleFormSubmit = async (data: any) => {
+  const handleFormSubmit = async (data: ExpenseFormData & { shipmentId?: string }) => {
     try {
       const submitData = {
         ...data,
@@ -132,10 +136,9 @@ export function ExpenseForm({
       await onSubmit(submitData);
       reset();
       setExpenseDate(new Date());
-      setAmountEUR(0);
       onClose();
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to save expense');
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save expense');
       console.error(error);
     }
   };
@@ -176,6 +179,9 @@ export function ExpenseForm({
                     <MenuItem value="OPERATIONAL">{tExpenses('operational')}</MenuItem>
                     <MenuItem value="MARKETING">{tExpenses('marketing')}</MenuItem>
                     <MenuItem value="UTILITIES">{tExpenses('utilities')}</MenuItem>
+                    <MenuItem value="PACKAGING">{tExpenses('packaging')}</MenuItem>
+                    <MenuItem value="SHIPPING">{tExpenses('shipping')}</MenuItem>
+                    <MenuItem value="ADS">{tExpenses('ads')}</MenuItem>
                     <MenuItem value="OTHER">{tExpenses('other')}</MenuItem>
                   </TextField>
                 </Grid>
@@ -225,9 +231,9 @@ export function ExpenseForm({
                     helperText={errors.shipmentId?.message}
                   >
                     <MenuItem value="">{tExpenses('optional')}</MenuItem>
-                    {shipments.map((shipment) => (
-                      <MenuItem key={shipment.id} value={shipment.id}>
-                        {shipment.reference} - {shipment.supplier.name}
+                    {shipments.map((arrivage) => (
+                      <MenuItem key={arrivage.id} value={arrivage.id}>
+                        {arrivage.reference} {arrivage.supplier?.name ? `- ${arrivage.supplier.name}` : ''}
                       </MenuItem>
                     ))}
                   </TextField>
