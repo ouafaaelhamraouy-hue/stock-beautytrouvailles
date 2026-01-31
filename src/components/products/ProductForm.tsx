@@ -357,6 +357,7 @@ export function ProductForm({
                     },
                   })}
                   label="PA (Prix Achat) EUR"
+                  InputLabelProps={{ shrink: true }}
                   fullWidth
                   type="number"
                   inputProps={{ step: '0.01', min: 0 }}
@@ -375,6 +376,7 @@ export function ProductForm({
                     },
                   })}
                   label="PA (Prix Achat) MAD"
+                  InputLabelProps={{ shrink: true }}
                   fullWidth
                   required
                   type="number"
@@ -389,6 +391,7 @@ export function ProductForm({
                 <TextField
                   {...register('sellingPriceDh', { setValueAs: parseDecimal })}
                   label="PV (Prix Vente) MAD"
+                  InputLabelProps={{ shrink: true }}
                   fullWidth
                   required
                   type="number"
@@ -403,6 +406,7 @@ export function ProductForm({
                 <TextField
                   {...register('promoPriceDh', { setValueAs: parseOptionalDecimal })}
                   label="Promo Price MAD (optional)"
+                  InputLabelProps={{ shrink: true }}
                   fullWidth
                   type="number"
                   inputProps={{ step: '0.01', min: 0 }}
