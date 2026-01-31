@@ -256,21 +256,16 @@ export async function POST(request: Request) {
 
         const previousQtySold = product.quantitySold;
         const newQtySold = previousQtySold + quantity;
-
-        await tx.product.update({
-          where: { id: productId },
-          data: {
-            quantitySold: newQtySold,
-          },
-        });
+        const previousQty = product.quantityReceived - previousQtySold;
+        const newQty = product.quantityReceived - newQtySold;
 
         await tx.stockMovement.create({
           data: {
             productId,
             type: 'SALE',
             quantity: -quantity,
-            previousQty: product.quantityReceived - previousQtySold,
-            newQty: product.quantityReceived - newQtySold,
+            previousQty,
+            newQty,
             reference: `Sale ${sale.id}`,
             userId: user.id,
             organizationId: userProfile.organizationId,
@@ -377,19 +372,16 @@ export async function POST(request: Request) {
         if (!product) continue;
         const previousQtySold = product.quantitySold;
         const newQtySold = previousQtySold + item.quantity;
-
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { quantitySold: newQtySold },
-        });
+        const previousQty = product.quantityReceived - previousQtySold;
+        const newQty = product.quantityReceived - newQtySold;
 
         await tx.stockMovement.create({
           data: {
             productId: item.productId,
             type: 'SALE',
             quantity: -item.quantity,
-            previousQty: product.quantityReceived - previousQtySold,
-            newQty: product.quantityReceived - newQtySold,
+            previousQty,
+            newQty,
             reference: `Sale ${sale.id} (bundle)`,
             userId: user.id,
             organizationId: userProfile.organizationId,

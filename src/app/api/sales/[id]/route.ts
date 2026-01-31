@@ -254,20 +254,17 @@ export async function PUT(
           const diff = newQty - prevQty;
           if (diff === 0) continue;
 
-          await tx.product.update({
-            where: { id: productId },
-            data: { quantitySold: { increment: diff } },
-          });
-
           const product = await tx.product.findUnique({ where: { id: productId } });
           if (product) {
+            const previousQty = product.quantityReceived - product.quantitySold;
+            const newQty = product.quantityReceived - (product.quantitySold + diff);
             await tx.stockMovement.create({
               data: {
                 productId,
                 type: diff > 0 ? 'SALE' : 'RETURN',
                 quantity: -diff,
-                previousQty: product.quantityReceived - (product.quantitySold - diff),
-                newQty: product.quantityReceived - product.quantitySold,
+                previousQty,
+                newQty,
                 reference: `Sale ${id} (bundle updated)`,
                 userId: user.id,
                 organizationId: userProfile.organizationId,
@@ -377,25 +374,20 @@ export async function PUT(
 
     const result = await prisma.$transaction(async (tx) => {
       if (quantityDiff !== 0) {
-        await tx.product.update({
-          where: { id: existingSale.productId as string },
-          data: {
-            quantitySold: { increment: quantityDiff },
-          },
-        });
-
         const product = await tx.product.findUnique({
           where: { id: existingSale.productId as string },
         });
 
         if (product) {
+          const previousQty = product.quantityReceived - product.quantitySold;
+          const newQty = product.quantityReceived - (product.quantitySold + quantityDiff);
           await tx.stockMovement.create({
             data: {
               productId: existingSale.productId as string,
-              type: 'SALE',
+              type: quantityDiff > 0 ? 'SALE' : 'RETURN',
               quantity: -quantityDiff,
-              previousQty: product.quantityReceived - (product.quantitySold - quantityDiff),
-              newQty: product.quantityReceived - product.quantitySold,
+              previousQty,
+              newQty,
               reference: `Sale ${id} (updated)`,
               userId: user.id,
               organizationId: userProfile.organizationId,
@@ -497,23 +489,20 @@ export async function DELETE(
     await prisma.$transaction(async (tx) => {
       if (sale.pricingMode === 'BUNDLE' && sale.items.length > 0) {
         for (const item of sale.items) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { quantitySold: { decrement: item.quantity } },
-          });
-
           const product = await tx.product.findUnique({
             where: { id: item.productId },
           });
 
           if (product) {
+            const previousQty = product.quantityReceived - product.quantitySold;
+            const newQty = product.quantityReceived - (product.quantitySold - item.quantity);
             await tx.stockMovement.create({
               data: {
                 productId: item.productId,
                 type: 'RETURN',
                 quantity: item.quantity,
-                previousQty: product.quantityReceived - (product.quantitySold + item.quantity),
-                newQty: product.quantityReceived - product.quantitySold,
+                previousQty,
+                newQty,
                 reference: `Sale ${id} (deleted)`,
                 userId: user.id,
                 organizationId: userProfile.organizationId,
@@ -522,25 +511,20 @@ export async function DELETE(
           }
         }
       } else if (sale.productId && sale.quantity) {
-        await tx.product.update({
-          where: { id: sale.productId },
-          data: {
-            quantitySold: { decrement: sale.quantity },
-          },
-        });
-
         const product = await tx.product.findUnique({
           where: { id: sale.productId },
         });
 
         if (product) {
+          const previousQty = product.quantityReceived - product.quantitySold;
+          const newQty = product.quantityReceived - (product.quantitySold - sale.quantity);
           await tx.stockMovement.create({
             data: {
               productId: sale.productId,
               type: 'RETURN',
               quantity: sale.quantity,
-              previousQty: product.quantityReceived - (product.quantitySold + sale.quantity),
-              newQty: product.quantityReceived - product.quantitySold,
+              previousQty,
+              newQty,
               reference: `Sale ${id} (deleted)`,
               userId: user.id,
               organizationId: userProfile.organizationId,
