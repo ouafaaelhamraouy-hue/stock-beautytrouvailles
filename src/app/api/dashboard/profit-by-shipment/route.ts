@@ -26,6 +26,9 @@ export async function GET() {
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'DASHBOARD_READ')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -33,6 +36,7 @@ export async function GET() {
 
     // Get all arrivages with their products
     const arrivages = await prisma.arrivage.findMany({
+      where: { organizationId: userProfile.organizationId },
       include: {
         products: {
           include: {
@@ -64,10 +68,11 @@ export async function GET() {
         const purchasePriceMad = Number(product.purchasePriceMad) || 0;
         
         productSales.forEach((sale) => {
+          const saleQuantity = sale.quantity ?? 0;
           totalRevenueDh += Number(sale.totalAmount) || 0;
-          totalQuantitySold += sale.quantity;
+          totalQuantitySold += saleQuantity;
           // Cost of goods sold for this sale
-          totalCostOfGoodsSoldDh += sale.quantity * purchasePriceMad;
+          totalCostOfGoodsSoldDh += saleQuantity * purchasePriceMad;
         });
       });
 

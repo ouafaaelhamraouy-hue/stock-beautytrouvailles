@@ -25,6 +25,9 @@ export async function GET(request: Request) {
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     // Get query parameters
     const { searchParams } = new URL(request.url);
@@ -34,6 +37,7 @@ export async function GET(request: Request) {
     const products = await prisma.product.findMany({
       where: {
         isActive: true,
+        organizationId: userProfile.organizationId,
       },
       select: {
         id: true,

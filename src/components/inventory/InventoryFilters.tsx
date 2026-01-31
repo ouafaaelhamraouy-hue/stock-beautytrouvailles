@@ -109,7 +109,7 @@ export function InventoryFilters({
         <Box sx={{ flex: 1, minWidth: 200 }}>
           <SearchInput
             value={search || ''}
-            onChange={(e) => onSearchChange(e.target.value)}
+            onChange={onSearchChange}
             placeholder="Rechercher un produit..."
           />
         </Box>

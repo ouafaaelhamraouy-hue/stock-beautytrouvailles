@@ -15,7 +15,19 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const userProfile = await prisma.user.findUnique({
+      where: { id: user.id },
+    });
+
+    if (!userProfile || !userProfile.isActive) {
+      return NextResponse.json({ error: 'User not active' }, { status: 403 });
+    }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
+
     const brands = await prisma.brand.findMany({
+      where: { organizationId: userProfile.organizationId },
       select: {
         id: true,
         name: true,
@@ -58,6 +70,9 @@ export async function POST(request: Request) {
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'PRODUCTS_CREATE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -67,8 +82,8 @@ export async function POST(request: Request) {
     const { name, country, logoUrl } = body;
 
     // Check if brand already exists
-    const existingBrand = await prisma.brand.findUnique({
-      where: { name },
+    const existingBrand = await prisma.brand.findFirst({
+      where: { name, organizationId: userProfile.organizationId },
     });
 
     if (existingBrand) {
@@ -83,6 +98,7 @@ export async function POST(request: Request) {
         name,
         country: country || 'France',
         logoUrl,
+        organizationId: userProfile.organizationId,
       },
     });
 

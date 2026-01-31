@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   Dialog,
@@ -79,6 +79,7 @@ export function ProductForm({
   const [currentExchangeRate, setCurrentExchangeRate] = useState(exchangeRate);
 
   const {
+    control,
     register,
     handleSubmit,
     formState: { errors },
@@ -189,38 +190,52 @@ export function ProductForm({
           <Box sx={{ pt: 2 }}>
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}>
-                <TextField
-                  {...register('categoryId')}
-                  label="Category"
-                  fullWidth
-                  required
-                  select
-                  error={!!errors.categoryId}
-                  helperText={errors.categoryId?.message}
-                >
-                  {categories.map((category) => (
-                    <MenuItem key={category.id} value={category.id}>
-                      {category.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
+                <Controller
+                  name="categoryId"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      value={field.value ?? ''}
+                      label="Category"
+                      fullWidth
+                      required
+                      select
+                      error={!!errors.categoryId}
+                      helperText={errors.categoryId?.message}
+                    >
+                      {categories.map((category) => (
+                        <MenuItem key={category.id} value={category.id}>
+                          {category.name}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  )}
+                />
               </Grid>
               <Grid item xs={12} sm={6}>
-                <TextField
-                  {...register('purchaseSource')}
-                  label="Purchase Source"
-                  fullWidth
-                  required
-                  select
-                  error={!!errors.purchaseSource}
-                  helperText={errors.purchaseSource?.message}
-                >
-                  {PURCHASE_SOURCES.map((source) => (
-                    <MenuItem key={source.value} value={source.value}>
-                      {source.label}
-                    </MenuItem>
-                  ))}
-                </TextField>
+                <Controller
+                  name="purchaseSource"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      value={field.value ?? 'OTHER'}
+                      label="Purchase Source"
+                      fullWidth
+                      required
+                      select
+                      error={!!errors.purchaseSource}
+                      helperText={errors.purchaseSource?.message}
+                    >
+                      {PURCHASE_SOURCES.map((source) => (
+                        <MenuItem key={source.value} value={source.value}>
+                          {source.label}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  )}
+                />
               </Grid>
               <Grid item xs={12}>
                 <TextField
@@ -249,18 +264,28 @@ export function ProductForm({
                   ))}
                 </TextField>
               </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  {...register('quantityReceived', { valueAsNumber: true })}
-                  label="Quantity Received"
-                  fullWidth
-                  required
-                  type="number"
-                  inputProps={{ step: '1', min: 0 }}
-                  error={!!errors.quantityReceived}
-                  helperText={errors.quantityReceived?.message}
-                />
-              </Grid>
+              {initialData ? (
+                <Grid item xs={12}>
+                  <Box sx={{ p: 1.5, bgcolor: 'warning.light', borderRadius: 1 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Stock edits are disabled here. Use Adjust Stock or shipment item adjustments.
+                    </Typography>
+                  </Box>
+                </Grid>
+              ) : (
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    {...register('quantityReceived', { valueAsNumber: true })}
+                    label="Quantity Received"
+                    fullWidth
+                    required
+                    type="number"
+                    inputProps={{ step: '1', min: 0 }}
+                    error={!!errors.quantityReceived}
+                    helperText={errors.quantityReceived?.message}
+                  />
+                </Grid>
+              )}
               <Grid item xs={12}>
                 <TextField
                   {...register('description')}

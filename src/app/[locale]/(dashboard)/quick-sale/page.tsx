@@ -3,24 +3,12 @@
 import { useState, useEffect } from 'react';
 import { Container, Typography, Box } from '@mui/material';
 import { useTranslations } from 'next-intl';
-import { QuickSale } from '@/components/sales/QuickSale';
+import { QuickSale, type QuickSaleProduct } from '@/components/sales/QuickSale';
 import { LoadingState, ErrorState } from '@/components/ui';
-
-interface Product {
-  id: string;
-  sku: string;
-  name: string;
-  basePriceEUR: number;
-  basePriceDH: number;
-  availableStock: number;
-  category: {
-    name: string;
-  };
-}
 
 export default function QuickSalePage() {
   const tSales = useTranslations('sales');
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<QuickSaleProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

@@ -12,28 +12,43 @@ import { format } from 'date-fns';
 interface Sale {
   id: string;
   saleDate: string;
-  product: {
+  product?: {
     id: string;
-    sku: string;
     name: string;
     category: {
       name: string;
     };
-  };
-  quantity: number;
-  pricePerUnit: number;
+  } | null;
+  quantity?: number | null;
+  pricePerUnit?: number | null;
   totalAmount: number;
+  pricingMode: 'REGULAR' | 'PROMO' | 'CUSTOM' | 'BUNDLE';
+  bundleQty?: number | null;
+  bundlePriceTotal?: number | null;
+  items?: Array<{
+    productId: string;
+    quantity: number;
+    pricePerUnit: number;
+    product: {
+      id: string;
+      name: string;
+      category: {
+        name: string;
+      };
+    };
+  }>;
   isPromo: boolean;
+  notes?: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
 interface Product {
   id: string;
-  sku: string;
   name: string;
-  basePriceEUR: number;
-  basePriceDH: number;
+  sellingPriceDh: number;
+  promoPriceDh: number | null;
+  purchasePriceMad: number;
   availableStock: number;
   category: {
     name: string;
@@ -173,7 +188,7 @@ export default function SalesPage() {
                   <MenuItem value="">All Products</MenuItem>
                   {products.map((product) => (
                     <MenuItem key={product.id} value={product.id}>
-                      {product.sku} - {product.name}
+                      {product.name}
                     </MenuItem>
                   ))}
                 </TextField>

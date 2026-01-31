@@ -32,8 +32,9 @@ import { StatusBadge } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ui';
 import { ShipmentForm } from '@/components/shipments/ShipmentForm';
 import { ShipmentItemForm } from '@/components/shipments/ShipmentItemForm';
+import { ExpensesTable } from '@/components/expenses/ExpensesTable';
 import { useUserProfile } from '@/hooks/useUserProfile';
-import { hasPermission } from '@/lib/permissions';
+import { hasPermission, isAdmin as isAdminRole } from '@/lib/permissions';
 import type { ShipmentFormData, ShipmentItemFormData } from '@/lib/validations';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
@@ -57,18 +58,39 @@ interface ShipmentItem {
   costPerUnitDH: number;
 }
 
+interface Expense {
+  id: string;
+  date: string;
+  amountEUR: number | { toNumber: () => number };
+  amountDH: number | { toNumber: () => number };
+  description: string;
+  type: 'OPERATIONAL' | 'MARKETING' | 'UTILITIES' | 'PACKAGING' | 'SHIPPING' | 'ADS' | 'OTHER';
+  shipmentId?: string | null;
+  arrivageId?: string | null;
+  shipment?: {
+    id: string;
+    reference: string;
+    supplier: {
+      name: string;
+    };
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface Shipment {
   id: string;
   reference: string;
   source: string;
-  arrivalDate?: string | null;
-  status: 'PENDING' | 'IN_TRANSIT' | 'ARRIVED' | 'PROCESSED';
+  purchaseDate?: string | null;
+  shipDate?: string | null;
+  receivedDate?: string | null;
+  status: 'PENDING' | 'PURCHASED' | 'SHIPPED' | 'IN_TRANSIT' | 'CUSTOMS' | 'RECEIVED';
   exchangeRate: number;
   shippingCostEUR: number;
-  customsCostEUR: number;
   packagingCostEUR: number;
-  totalCostEUR: number;
-  totalCostDH: number;
+  totalCostEur: number;
+  totalCostDh: number;
   items: ShipmentItem[];
   calculatedTotals?: {
     itemsCostEUR: number;
@@ -115,15 +137,26 @@ export default function ShipmentDetailPage() {
 
   const [shipment, setShipment] = useState<Shipment | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [profitStats, setProfitStats] = useState<{
+    totalRevenueEur: number;
+    totalRevenueDh: number;
+    netProfitEur: number;
+    netProfitDh: number;
+    marginPercent: number;
+    salesCount: number;
+    totalQuantitySold: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expensesLoading, setExpensesLoading] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [itemFormOpen, setItemFormOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [itemToEdit, setItemToEdit] = useState<ShipmentItem | null>(null);
   const [itemToDelete, setItemToDelete] = useState<ShipmentItem | null>(null);
 
-  const isAdmin = profile?.role === 'ADMIN';
+  const isAdmin = profile ? isAdminRole(profile.role) : false;
 
   const fetchShipment = useCallback(async () => {
     try {
@@ -134,7 +167,63 @@ export default function ShipmentDetailPage() {
         throw new Error('Failed to fetch shipment');
       }
       const data = await response.json();
-      setShipment(data);
+      const toNumber = (value: unknown) =>
+        typeof value === 'number'
+          ? value
+          : typeof (value as { toNumber?: () => number })?.toNumber === 'function'
+            ? (value as { toNumber: () => number }).toNumber()
+            : Number(value) || 0;
+
+      const exchangeRateValue = toNumber(data.exchangeRate);
+      const items = (data.items ?? data.products ?? []).map((product: any) => {
+        const quantityReceived = Number(product.quantityReceived) || 0;
+        const quantitySold = Number(product.quantitySold) || 0;
+        const purchasePriceEur = toNumber(product.purchasePriceEur);
+        const purchasePriceMad = toNumber(product.purchasePriceMad);
+        const costPerUnitEUR = Number.isFinite(purchasePriceEur)
+          ? purchasePriceEur
+          : (exchangeRateValue ? purchasePriceMad / exchangeRateValue : 0);
+        const costPerUnitDH = Number.isFinite(purchasePriceMad)
+          ? purchasePriceMad
+          : costPerUnitEUR * exchangeRateValue;
+        return {
+          id: product.id,
+          product: {
+            id: product.id,
+            sku: product.sku || product.name,
+            name: product.name,
+            category: {
+              name: product.category?.name || '',
+            },
+          },
+          quantity: quantityReceived,
+          quantitySold,
+          quantityRemaining: Math.max(0, quantityReceived - quantitySold),
+          costPerUnitEUR,
+          costPerUnitDH,
+        };
+      });
+      const itemsCostEUR = items.reduce((sum, item) => sum + item.quantity * item.costPerUnitEUR, 0);
+      const totalCostEUR = toNumber(data.totalCostEur) || itemsCostEUR;
+      const totalCostDH = toNumber(data.totalCostDh) || totalCostEUR * exchangeRateValue;
+
+      setShipment({
+        ...data,
+        exchangeRate: exchangeRateValue,
+        totalCostEur: totalCostEUR,
+        totalCostDh: totalCostDH,
+        calculatedTotals: {
+          itemsCostEUR,
+          totalCostEUR,
+          totalCostDH,
+          totalRevenueEUR: 0,
+          totalRevenueDH: 0,
+          profitEUR: 0,
+          profitDH: 0,
+          marginPercent: 0,
+        },
+        items,
+      });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load shipment');
     } finally {
@@ -149,19 +238,70 @@ export default function ShipmentDetailPage() {
         throw new Error('Failed to fetch products');
       }
       const data = await response.json();
-      setProducts(data || []);
+      const list = Array.isArray(data) ? data : (data.products || []);
+      const mapped = list.map((product: any) => ({
+        id: product.id,
+        sku: product.sku || product.name,
+        name: product.name,
+        basePriceEUR: Number(product.purchasePriceEur ?? product.purchasePriceEUR ?? 0),
+        basePriceDH: Number(product.purchasePriceMad ?? product.purchasePriceMAD ?? 0),
+        category: {
+          name: product.category?.name || '',
+        },
+      }));
+      setProducts(mapped);
     } catch (err) {
       console.error('Failed to fetch products:', err);
     }
   }, []);
 
+  const fetchExpenses = useCallback(async () => {
+    try {
+      setExpensesLoading(true);
+      const response = await fetch(`/api/expenses?arrivageId=${shipmentId}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch expenses');
+      }
+      const data = await response.json();
+      setExpenses(Array.isArray(data) ? data : (data.expenses || []));
+    } catch (err) {
+      console.error('Failed to fetch expenses:', err);
+      setExpenses([]);
+    } finally {
+      setExpensesLoading(false);
+    }
+  }, [shipmentId]);
+
+  const fetchProfitStats = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/shipments/${shipmentId}/stats`);
+      if (!response.ok) return;
+      const data = await response.json();
+      setProfitStats({
+        totalRevenueEur: Number(data.totalRevenueEur) || 0,
+        totalRevenueDh: Number(data.totalRevenueDh) || 0,
+        netProfitEur: Number(data.netProfitEur) || 0,
+        netProfitDh: Number(data.netProfitDh) || 0,
+        marginPercent: Number(data.marginPercent) || 0,
+        salesCount: Number(data.salesCount) || 0,
+        totalQuantitySold: Number(data.totalQuantitySold) || 0,
+      });
+    } catch (err) {
+      console.error('Failed to fetch shipment profit stats:', err);
+    }
+  }, [shipmentId]);
+
   useEffect(() => {
     fetchShipment();
     fetchProducts();
-  }, [fetchShipment, fetchProducts]);
+    fetchExpenses();
+    fetchProfitStats();
+  }, [fetchShipment, fetchProducts, fetchExpenses, fetchProfitStats]);
 
   const handleRefresh = () => {
     fetchShipment();
+    fetchExpenses();
+    fetchProfitStats();
   };
 
   const handleEditShipment = () => {
@@ -212,12 +352,14 @@ export default function ShipmentDetailPage() {
     const apiData = {
       reference: data.reference,
       source: data.source,
-      arrivalDate: data.arrivalDate,
+      purchaseDate: data.purchaseDate,
+      shipDate: data.shipDate,
+      receivedDate: data.receivedDate,
       status: data.status,
       exchangeRate: data.exchangeRate,
       shippingCostEur: data.shippingCostEUR,
-      customsCostEUR: data.customsCostEUR,
       packagingCostEur: data.packagingCostEUR,
+      totalCostEur: data.totalCostEUR,
     };
 
     const response = await fetch(`/api/shipments/${shipment.id}`, {
@@ -266,10 +408,13 @@ export default function ShipmentDetailPage() {
     switch (status) {
       case 'PENDING':
         return 'warning';
+      case 'PURCHASED':
+      case 'SHIPPED':
       case 'IN_TRANSIT':
         return 'info';
-      case 'ARRIVED':
-      case 'PROCESSED':
+      case 'CUSTOMS':
+        return 'warning';
+      case 'RECEIVED':
         return 'success';
       default:
         return 'default';
@@ -300,23 +445,29 @@ export default function ShipmentDetailPage() {
     return null;
   }
 
-  const totals = shipment.calculatedTotals || {
-    itemsCostEUR: 0,
-    totalCostEUR: shipment.totalCostEUR,
-    totalCostDH: shipment.totalCostDH,
-    totalRevenueEUR: 0,
-    totalRevenueDH: 0,
-    profitEUR: 0,
-    profitDH: 0,
-    marginPercent: 0,
+  const itemsCostEUR = shipment.items.reduce(
+    (sum, item) => sum + item.quantity * item.costPerUnitEUR,
+    0
+  );
+  const totals = {
+    itemsCostEUR,
+    totalCostEUR: shipment.totalCostEur,
+    totalCostDH: shipment.totalCostDh,
+    totalRevenueEUR: profitStats?.totalRevenueEur ?? 0,
+    totalRevenueDH: profitStats?.totalRevenueDh ?? 0,
+    profitEUR: profitStats?.netProfitEur ?? 0,
+    profitDH: profitStats?.netProfitDh ?? 0,
+    marginPercent: profitStats?.marginPercent ?? 0,
   };
 
   const getStatusLabel = (status: string) => {
     const labels: Record<string, string> = {
       PENDING: 'Pending',
+      PURCHASED: 'Purchased',
+      SHIPPED: 'Shipped',
       IN_TRANSIT: 'In Transit',
-      ARRIVED: 'Arrived',
-      PROCESSED: 'Processed',
+      CUSTOMS: 'Customs',
+      RECEIVED: 'Received',
     };
     return labels[status] || status;
   };
@@ -365,10 +516,26 @@ export default function ShipmentDetailPage() {
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
               <Typography variant="body2" color="text.secondary">
-                {tShipments('arrivalDate')}
+                {tShipments('purchaseDate')}
               </Typography>
               <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                {shipment.arrivalDate ? new Date(shipment.arrivalDate).toLocaleDateString() : '-'}
+                {shipment.purchaseDate ? new Date(shipment.purchaseDate).toLocaleDateString() : '-'}
+              </Typography>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Typography variant="body2" color="text.secondary">
+                {tShipments('shipDate')}
+              </Typography>
+              <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                {shipment.shipDate ? new Date(shipment.shipDate).toLocaleDateString() : '-'}
+              </Typography>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Typography variant="body2" color="text.secondary">
+                {tShipments('receivedDate')}
+              </Typography>
+              <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                {shipment.receivedDate ? new Date(shipment.receivedDate).toLocaleDateString() : '-'}
               </Typography>
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
@@ -376,7 +543,7 @@ export default function ShipmentDetailPage() {
                 {tShipments('exchangeRate')}
               </Typography>
               <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                {shipment.exchangeRate.toFixed(2)}
+                {Number(shipment.exchangeRate).toFixed(2)}
               </Typography>
             </Grid>
           </Grid>
@@ -387,7 +554,22 @@ export default function ShipmentDetailPage() {
           <Grid item xs={12} sm={6} md={3}>
             <StatsCard
               title={tShipments('itemsCost')}
-              value={<CurrencyDisplay amount={totals.itemsCostEUR} currency="EUR" variant="h4" />}
+              value={
+                <Box>
+                  <CurrencyDisplay
+                    amount={totals.itemsCostEUR * shipment.exchangeRate}
+                    currency="DH"
+                    variant="h4"
+                  />
+                  <Typography variant="body2" color="text.secondary">
+                    <CurrencyDisplay
+                      amount={totals.itemsCostEUR}
+                      currency="EUR"
+                      variant="body2"
+                    />
+                  </Typography>
+                </Box>
+              }
               icon={<ShoppingCartIcon sx={{ fontSize: 40 }} />}
               color="#1976d2"
             />
@@ -395,7 +577,14 @@ export default function ShipmentDetailPage() {
           <Grid item xs={12} sm={6} md={3}>
             <StatsCard
               title={tShipments('totalCost')}
-              value={<CurrencyDisplay amount={totals.totalCostEUR} currency="EUR" variant="h4" />}
+              value={
+                <Box>
+                  <CurrencyDisplay amount={totals.totalCostDH} currency="DH" variant="h4" />
+                  <Typography variant="body2" color="text.secondary">
+                    <CurrencyDisplay amount={totals.totalCostEUR} currency="EUR" variant="body2" />
+                  </Typography>
+                </Box>
+              }
               icon={<InventoryIcon sx={{ fontSize: 40 }} />}
               color="#2e7d32"
             />
@@ -403,7 +592,18 @@ export default function ShipmentDetailPage() {
           <Grid item xs={12} sm={6} md={3}>
             <StatsCard
               title={tShipments('revenue')}
-              value={<CurrencyDisplay amount={totals.totalRevenueEUR} currency="EUR" variant="h4" />}
+              value={
+                <Box>
+                  <CurrencyDisplay amount={totals.totalRevenueDH} currency="DH" variant="h4" />
+                  <Typography variant="body2" color="text.secondary">
+                    <CurrencyDisplay
+                      amount={totals.totalRevenueEUR}
+                      currency="EUR"
+                      variant="body2"
+                    />
+                  </Typography>
+                </Box>
+              }
               icon={<AttachMoneyIcon sx={{ fontSize: 40 }} />}
               color="#ed6c02"
             />
@@ -411,7 +611,18 @@ export default function ShipmentDetailPage() {
           <Grid item xs={12} sm={6} md={3}>
             <StatsCard
               title={tShipments('profit')}
-              value={<CurrencyDisplay amount={totals.profitEUR} currency="EUR" variant="h4" />}
+              value={
+                <Box>
+                  <CurrencyDisplay amount={totals.profitDH} currency="DH" variant="h4" />
+                  <Typography variant="body2" color="text.secondary">
+                    <CurrencyDisplay
+                      amount={totals.profitEUR}
+                      currency="EUR"
+                      variant="body2"
+                    />
+                  </Typography>
+                </Box>
+              }
               icon={<TrendingUpIcon sx={{ fontSize: 40 }} />}
               color={totals.profitEUR >= 0 ? '#2e7d32' : '#d32f2f'}
               trend={{
@@ -456,7 +667,9 @@ export default function ShipmentDetailPage() {
                     <TableCell align="right"><strong>{tShipments('sold')}</strong></TableCell>
                     <TableCell align="right"><strong>{tShipments('remaining')}</strong></TableCell>
                     <TableCell align="right"><strong>{tShipments('costPerUnit')} (EUR)</strong></TableCell>
+                    <TableCell align="right"><strong>{tShipments('costPerUnit')} (DH)</strong></TableCell>
                     <TableCell align="right"><strong>{tShipments('total')} (EUR)</strong></TableCell>
+                    <TableCell align="right"><strong>{tShipments('total')} (DH)</strong></TableCell>
                     {isAdmin && (
                       <TableCell align="center"><strong>Actions</strong></TableCell>
                     )}
@@ -464,10 +677,11 @@ export default function ShipmentDetailPage() {
                 </TableHead>
                 <TableBody>
                   {shipment.items.map((item) => {
-                    const itemTotal = item.quantity * item.costPerUnitEUR;
-                    return (
-                      <TableRow key={item.id} hover>
-                        <TableCell>
+                        const itemTotal = item.quantity * item.costPerUnitEUR;
+                        const itemTotalDh = item.quantity * item.costPerUnitDH;
+                        return (
+                          <TableRow key={item.id} hover>
+                            <TableCell>
                           <Box>
                             <Typography variant="body2" sx={{ fontWeight: 500 }}>
                               {item.product.sku} - {item.product.name}
@@ -492,7 +706,13 @@ export default function ShipmentDetailPage() {
                           <CurrencyDisplay amount={item.costPerUnitEUR} currency="EUR" variant="body2" />
                         </TableCell>
                         <TableCell align="right">
+                          <CurrencyDisplay amount={item.costPerUnitDH} currency="DH" variant="body2" />
+                        </TableCell>
+                        <TableCell align="right">
                           <CurrencyDisplay amount={itemTotal} currency="EUR" variant="body2" />
+                        </TableCell>
+                        <TableCell align="right">
+                          <CurrencyDisplay amount={itemTotalDh} currency="DH" variant="body2" />
                         </TableCell>
                         {isAdmin && hasPermission(profile?.role || 'STAFF', 'ARRIVAGES_UPDATE') && (
                           <TableCell align="center">
@@ -513,6 +733,37 @@ export default function ShipmentDetailPage() {
           )}
         </Paper>
 
+        {/* Expenses (Charges) */}
+        <Paper elevation={2} sx={{ borderRadius: 2, overflow: 'hidden', mt: 3 }}>
+          <Box
+            sx={{
+              p: 2,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              borderBottom: '1px solid rgba(0, 0, 0, 0.12)',
+            }}
+          >
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              Charges
+            </Typography>
+          </Box>
+          {expensesLoading ? (
+            <Box sx={{ p: 4 }}>
+              <Typography color="text.secondary">Loading charges…</Typography>
+            </Box>
+          ) : (
+            <ExpensesTable
+              expenses={expenses}
+              shipments={[{ id: shipment.id, reference: shipment.reference, supplier: { name: shipment.source } }]}
+              onRefresh={handleRefresh}
+              showShipmentColumn={false}
+              defaultShipmentId={shipment.id}
+              exchangeRate={shipment.exchangeRate}
+            />
+          )}
+        </Paper>
+
         {/* Forms */}
         <ShipmentForm
           open={formOpen}
@@ -521,27 +772,35 @@ export default function ShipmentDetailPage() {
           initialData={shipment ? {
             id: shipment.id,
             reference: shipment.reference,
-            source: shipment.source,
-            arrivalDate: shipment.arrivalDate,
+            source: shipment.source as ShipmentFormData['source'],
+            purchaseDate: shipment.purchaseDate,
+            shipDate: shipment.shipDate,
+            receivedDate: shipment.receivedDate,
             status: shipment.status,
             exchangeRate: shipment.exchangeRate,
             shippingCostEUR: shipment.shippingCostEUR,
-            customsCostEUR: shipment.customsCostEUR,
             packagingCostEUR: shipment.packagingCostEUR,
+            totalCostEUR: shipment.totalCostEur,
           } : undefined}
         />
 
-        <ShipmentItemForm
-          open={itemFormOpen}
-          onClose={() => {
-            setItemFormOpen(false);
-            setItemToEdit(null);
-          }}
-          onSubmit={handleItemSubmit}
-          initialData={itemToEdit || undefined}
-          products={products}
-          exchangeRate={shipment.exchangeRate}
-        />
+      <ShipmentItemForm
+        open={itemFormOpen}
+        onClose={() => {
+          setItemFormOpen(false);
+          setItemToEdit(null);
+        }}
+        onSubmit={handleItemSubmit}
+        initialData={itemToEdit ? {
+          id: itemToEdit.id,
+          productId: itemToEdit.product.id,
+          quantity: itemToEdit.quantity,
+          costPerUnitEUR: itemToEdit.costPerUnitEUR,
+        } : undefined}
+        products={products}
+        linkedProductIds={shipment.items.map((item) => item.product.id)}
+        exchangeRate={shipment.exchangeRate}
+      />
 
         <ConfirmDialog
           open={deleteDialogOpen}

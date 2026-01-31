@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
@@ -40,6 +40,7 @@ interface ShipmentItemFormProps {
     costPerUnitEUR: number;
   };
   products: Product[];
+  linkedProductIds?: string[];
   exchangeRate: number;
   loading?: boolean;
 }
@@ -50,12 +51,15 @@ export function ShipmentItemForm({
   onSubmit,
   initialData,
   products,
+  linkedProductIds = [],
   exchangeRate,
   loading = false,
 }: ShipmentItemFormProps) {
   const t = useTranslations('common');
   const tShipments = useTranslations('shipments');
   const [selectedProductId, setSelectedProductId] = useState<string>('');
+  const [costPerUnitDH, setCostPerUnitDH] = useState(0);
+  const lastEdited = useRef<'EUR' | 'DH' | null>(null);
 
   const {
     register,
@@ -75,18 +79,30 @@ export function ShipmentItemForm({
 
   const costPerUnitEUR = watch('costPerUnitEUR');
   const selectedProduct = products.find((p) => p.id === selectedProductId);
+  const linkedIdSet = new Set(linkedProductIds);
+  const round2 = (value: number) => Math.round(value * 100) / 100;
+  const costPerUnitEurRegister = register('costPerUnitEUR', { valueAsNumber: true });
 
   // Suggest base price when product is selected
   useEffect(() => {
     if (selectedProduct && !initialData && costPerUnitEUR === 0) {
-      setValue('costPerUnitEUR', selectedProduct.basePriceEUR, { shouldValidate: true });
+      const baseEur = selectedProduct.basePriceEUR ?? 0;
+      setValue('costPerUnitEUR', baseEur, { shouldValidate: true });
+      if (exchangeRate) {
+        setCostPerUnitDH(round2(baseEur * exchangeRate));
+      }
     }
-  }, [selectedProduct, initialData, costPerUnitEUR, setValue]);
+  }, [selectedProduct, initialData, costPerUnitEUR, setValue, exchangeRate]);
 
   useEffect(() => {
     if (initialData) {
       reset(initialData);
       setSelectedProductId(initialData.productId);
+      if (exchangeRate) {
+        setCostPerUnitDH(round2(initialData.costPerUnitEUR * exchangeRate));
+      } else {
+        setCostPerUnitDH(0);
+      }
     } else {
       reset({
         productId: '',
@@ -94,8 +110,22 @@ export function ShipmentItemForm({
         costPerUnitEUR: 0,
       });
       setSelectedProductId('');
+      setCostPerUnitDH(0);
     }
   }, [initialData, reset]);
+
+  useEffect(() => {
+    if (lastEdited.current === 'DH') return;
+    if (!exchangeRate || Number.isNaN(exchangeRate)) return;
+    setCostPerUnitDH(round2(Number(costPerUnitEUR || 0) * exchangeRate));
+  }, [costPerUnitEUR, exchangeRate]);
+
+  useEffect(() => {
+    if (lastEdited.current !== 'DH') return;
+    if (!exchangeRate || Number.isNaN(exchangeRate)) return;
+    const eur = round2(Number(costPerUnitDH || 0) / exchangeRate);
+    setValue('costPerUnitEUR', eur, { shouldValidate: true });
+  }, [costPerUnitDH, exchangeRate, setValue]);
 
   const handleFormSubmit = async (data: ShipmentItemFormData) => {
     try {
@@ -134,11 +164,15 @@ export function ShipmentItemForm({
                     setValue('productId', e.target.value, { shouldValidate: true });
                   }}
                 >
-                  {products.map((product) => (
-                    <MenuItem key={product.id} value={product.id}>
-                      {product.sku} - {product.name} ({product.category.name})
-                    </MenuItem>
-                  ))}
+                  {products.map((product) => {
+                    const isLinked = linkedIdSet.has(product.id);
+                    return (
+                      <MenuItem key={product.id} value={product.id} disabled={isLinked}>
+                        {product.sku} - {product.name} ({product.category.name})
+                        {isLinked ? ' — already in this shipment' : ''}
+                      </MenuItem>
+                    );
+                  })}
                 </TextField>
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -155,7 +189,7 @@ export function ShipmentItemForm({
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField
-                  {...register('costPerUnitEUR', { valueAsNumber: true })}
+                  {...costPerUnitEurRegister}
                   label={tShipments('costPerUnit') + ' (EUR)'}
                   fullWidth
                   required
@@ -163,12 +197,30 @@ export function ShipmentItemForm({
                   inputProps={{ step: '0.01', min: 0 }}
                   error={!!errors.costPerUnitEUR}
                   helperText={errors.costPerUnitEUR?.message}
+                  onChange={(event) => {
+                    lastEdited.current = 'EUR';
+                    costPerUnitEurRegister.onChange(event);
+                  }}
                 />
                 {selectedProduct && (
                   <Box sx={{ mt: 1, fontSize: '0.875rem', color: 'text.secondary' }}>
-                    Base price: {selectedProduct.basePriceEUR.toFixed(2)} EUR
+                    Base price: {(selectedProduct.basePriceEUR ?? 0).toFixed(2)} EUR
                   </Box>
                 )}
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label={tShipments('costPerUnit') + ' (DH)'}
+                  fullWidth
+                  required
+                  type="number"
+                  inputProps={{ step: '0.01', min: 0 }}
+                  value={Number.isFinite(costPerUnitDH) ? costPerUnitDH : 0}
+                  onChange={(event) => {
+                    lastEdited.current = 'DH';
+                    setCostPerUnitDH(Number(event.target.value) || 0);
+                  }}
+                />
               </Grid>
               {costPerUnitEUR > 0 && (
                 <Grid item xs={12}>

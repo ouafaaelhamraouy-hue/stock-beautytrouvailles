@@ -21,7 +21,11 @@ export function CurrencyDisplay({
   const formatted = formatCurrency(amount, currency, locale);
 
   return (
-    <Typography variant={variant} sx={{ color, fontWeight: 'medium' }}>
+    <Typography
+      variant={variant}
+      component="span"
+      sx={{ color, fontWeight: 'medium' }}
+    >
       {formatted}
     </Typography>
   );

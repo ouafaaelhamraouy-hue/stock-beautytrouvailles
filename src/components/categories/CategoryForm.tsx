@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   Dialog,
@@ -44,24 +44,20 @@ export function CategoryForm({
     reset,
   } = useForm<CategoryFormData>({
     resolver: zodResolver(categorySchema),
-    defaultValues: initialData || {
-      name: '',
-      description: '',
+    defaultValues: {
+      name: initialData?.name ?? '',
+      description: initialData?.description ?? '',
     },
   });
 
   useEffect(() => {
-    if (initialData) {
-      reset(initialData);
-    } else {
-      reset({
-        name: '',
-        description: '',
-      });
-    }
+    reset({
+      name: initialData?.name ?? '',
+      description: initialData?.description ?? '',
+    });
   }, [initialData, reset]);
 
-  const handleFormSubmit = async (data: CategoryFormData) => {
+  const handleFormSubmit: SubmitHandler<CategoryFormData> = async (data) => {
     try {
       await onSubmit(data);
       reset();

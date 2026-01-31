@@ -57,7 +57,16 @@ export function CompactKPICard({ label, value, delta, icon, color = '#6366F1' }:
       </Typography>
 
       {/* Value and Icon Row */}
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 1,
+          mb: 1,
+        }}
+      >
         <Box sx={{ flex: 1, minWidth: 0 }}>
           {typeof value === 'string' || typeof value === 'number' ? (
             <Typography
@@ -69,6 +78,8 @@ export function CompactKPICard({ label, value, delta, icon, color = '#6366F1' }:
                 letterSpacing: '-0.02em',
                 lineHeight: 1.2,
                 fontFeatureSettings: '"tnum"',
+                overflowWrap: 'anywhere',
+                wordBreak: 'break-word',
               }}
             >
               {value}

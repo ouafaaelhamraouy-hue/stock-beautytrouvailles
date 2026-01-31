@@ -5,6 +5,7 @@ import {
   DataGrid,
   GridColDef,
   GridActionsCellItem,
+  GridRowSelectionModel,
   GridToolbar,
 } from '@mui/x-data-grid';
 import { Box, Button } from '@mui/material';
@@ -14,10 +15,11 @@ import AddIcon from '@mui/icons-material/Add';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { BrandForm } from './BrandForm';
-import { ConfirmDialog } from '@/components/ui';
+import { BulkActionBar, ConfirmDialog, TableHeader } from '@/components/ui';
 import { useUserProfile } from '@/hooks/useUserProfile';
-import { hasPermission } from '@/lib/permissions';
+import { hasPermission, isAdmin as isAdminRole } from '@/lib/permissions';
 import type { BrandFormData } from '@/lib/validations';
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
 
 interface Brand {
   id: string;
@@ -37,12 +39,14 @@ export function BrandsTable({ brands, onRefresh }: BrandsTableProps) {
   const t = useTranslations('common');
   const tNav = useTranslations('nav');
   const { profile } = useUserProfile();
+  const [selectedRows, setSelectedRows] = useState<GridRowSelectionModel>([]);
   const [formOpen, setFormOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [brandToEdit, setBrandToEdit] = useState<Brand | null>(null);
   const [brandToDelete, setBrandToDelete] = useState<Brand | null>(null);
 
-  const isAdmin = profile?.role === 'ADMIN';
+  const isAdmin = profile ? isAdminRole(profile.role) : false;
 
   const handleCreate = () => {
     setBrandToEdit(null);
@@ -102,6 +106,50 @@ export function BrandsTable({ brands, onRefresh }: BrandsTableProps) {
     onRefresh();
   };
 
+  const handleBulkExport = async () => {
+    if (selectedRows.length === 0) return;
+    const XLSX = await import('xlsx');
+    const selected = brands.filter((brand) => selectedRows.includes(brand.id));
+    const excelData = selected.map((brand) => ({
+      Name: brand.name,
+      Country: brand.country || '',
+      Created: new Date(brand.createdAt).toLocaleDateString(),
+    }));
+    const ws = XLSX.utils.json_to_sheet(excelData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Brands');
+    XLSX.writeFile(wb, `brands-${new Date().toISOString().split('T')[0]}.xlsx`);
+    toast.success('Selected brands exported');
+  };
+
+  const handleBulkDeleteConfirm = async () => {
+    if (selectedRows.length === 0) return;
+
+    const ids = selectedRows.map((id) => String(id));
+    const results = await Promise.allSettled(
+      ids.map(async (id) => {
+        const response = await fetch(`/api/brands/${id}`, { method: 'DELETE' });
+        if (!response.ok) {
+          throw new Error('Failed to delete brand');
+        }
+      })
+    );
+
+    const failed = results.filter((result) => result.status === 'rejected').length;
+    const succeeded = results.length - failed;
+
+    if (succeeded > 0) {
+      toast.success(`Deleted ${succeeded} brand${succeeded === 1 ? '' : 's'}`);
+    }
+    if (failed > 0) {
+      toast.error(`Failed to delete ${failed} brand${failed === 1 ? '' : 's'}`);
+    }
+
+    setBulkDeleteDialogOpen(false);
+    setSelectedRows([]);
+    onRefresh();
+  };
+
   const columns: GridColDef[] = [
     { field: 'name', headerName: 'Name', width: 200, flex: 1 },
     { field: 'country', headerName: 'Country', width: 150, flex: 1 },
@@ -109,7 +157,7 @@ export function BrandsTable({ brands, onRefresh }: BrandsTableProps) {
       field: 'actions',
       type: 'actions',
       headerName: 'Actions',
-      width: 100,
+      width: 70,
       getActions: (params) => {
         const actions = [];
         if (isAdmin && hasPermission(profile?.role || 'STAFF', 'PRODUCTS_UPDATE')) {
@@ -118,6 +166,7 @@ export function BrandsTable({ brands, onRefresh }: BrandsTableProps) {
               icon={<EditIcon />}
               label="Edit"
               onClick={() => handleEdit(params.row)}
+              showInMenu
             />
           );
         }
@@ -139,23 +188,55 @@ export function BrandsTable({ brands, onRefresh }: BrandsTableProps) {
   return (
     <Box sx={{ height: '100%', width: '100%' }}>
       {brands.length > 0 && (
-        <Box sx={{ p: 2, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid rgba(0, 0, 0, 0.12)' }}>
-          {isAdmin && hasPermission(profile?.role || 'STAFF', 'PRODUCTS_CREATE') && (
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={handleCreate}
-              sx={{
-                boxShadow: '0 2px 8px rgba(25, 118, 210, 0.3)',
-                '&:hover': {
-                  boxShadow: '0 4px 12px rgba(25, 118, 210, 0.4)',
-                },
-              }}
-            >
-              {t('create')} {tNav('brands')}
-            </Button>
-          )}
-        </Box>
+        <TableHeader
+          left={
+            isAdmin && hasPermission(profile?.role || 'STAFF', 'PRODUCTS_CREATE') ? (
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={handleCreate}
+                sx={{
+                  boxShadow: '0 2px 8px rgba(25, 118, 210, 0.3)',
+                  '&:hover': {
+                    boxShadow: '0 4px 12px rgba(25, 118, 210, 0.4)',
+                  },
+                }}
+              >
+                {t('create')} {tNav('brands')}
+              </Button>
+            ) : null
+          }
+          totalCount={brands.length}
+          selectedCount={selectedRows.length}
+        />
+      )}
+
+      {selectedRows.length > 0 && (
+        <BulkActionBar
+          count={selectedRows.length}
+          onClear={() => setSelectedRows([])}
+          actions={
+            <>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<FileDownloadIcon />}
+                onClick={handleBulkExport}
+              >
+                Export
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<DeleteIcon />}
+                onClick={() => setBulkDeleteDialogOpen(true)}
+                disabled={!hasPermission(profile?.role || 'STAFF', 'PRODUCTS_DELETE')}
+              >
+                Delete selected
+              </Button>
+            </>
+          }
+        />
       )}
 
       {brands.length === 0 ? (
@@ -176,44 +257,59 @@ export function BrandsTable({ brands, onRefresh }: BrandsTableProps) {
         <DataGrid
           rows={brands}
           columns={columns}
+          checkboxSelection={isAdmin}
+          rowSelectionModel={selectedRows}
+          onRowSelectionModelChange={setSelectedRows}
           disableRowSelectionOnClick
-          slots={{
-            toolbar: GridToolbar,
-          }}
+          getRowClassName={(params) =>
+            params.indexRelativeToCurrentPage % 2 === 0 ? 'MuiDataGrid-row--striped' : ''
+          }
+        slots={{
+          toolbar: GridToolbar,
+        }}
           initialState={{
             pagination: {
               paginationModel: { pageSize: 25 },
             },
           }}
           pageSizeOptions={[10, 25, 50, 100]}
-          sx={{
+          sx={(theme) => ({
             border: 'none',
             '& .MuiDataGrid-cell': {
-              borderBottom: '1px solid rgba(224, 224, 224, 0.5)',
+              borderBottom: '1px solid',
+              borderColor: 'divider',
               '&:focus': {
                 outline: 'none',
               },
             },
+            '& .MuiDataGrid-row--striped': {
+              backgroundColor: theme.palette.mode === 'dark'
+                ? 'rgba(255, 255, 255, 0.03)'
+                : 'rgba(0, 0, 0, 0.02)',
+            },
             '& .MuiDataGrid-row': {
               '&:hover': {
-                backgroundColor: 'rgba(25, 118, 210, 0.04)',
+                backgroundColor: 'action.hover',
               },
             },
             '& .MuiDataGrid-columnHeaders': {
-              backgroundColor: 'rgba(0, 0, 0, 0.02)',
-              borderBottom: '2px solid rgba(0, 0, 0, 0.12)',
+              backgroundColor: 'background.default',
+              borderBottom: '1px solid',
+              borderColor: 'divider',
               fontWeight: 600,
+              fontSize: { xs: '0.75rem', sm: '0.8125rem' },
             },
             '& .MuiDataGrid-toolbarContainer': {
               padding: '12px 16px',
-              backgroundColor: 'rgba(0, 0, 0, 0.02)',
-              borderBottom: '1px solid rgba(0, 0, 0, 0.12)',
+              backgroundColor: 'background.default',
+              borderBottom: '1px solid',
+              borderColor: 'divider',
             },
             '& .MuiDataGrid-footerContainer': {
-              borderTop: '1px solid rgba(0, 0, 0, 0.12)',
-              backgroundColor: 'rgba(0, 0, 0, 0.02)',
+              borderTop: '1px solid',
+              borderColor: 'divider',
             },
-          }}
+          })}
         />
       )}
 
@@ -236,6 +332,16 @@ export function BrandsTable({ brands, onRefresh }: BrandsTableProps) {
         onConfirm={handleDeleteConfirm}
         title="Delete Brand"
         message={`Are you sure you want to delete "${brandToDelete?.name}"? This action cannot be undone.`}
+        confirmColor="error"
+        confirmLabel="Delete"
+      />
+
+      <ConfirmDialog
+        open={bulkDeleteDialogOpen}
+        onClose={() => setBulkDeleteDialogOpen(false)}
+        onConfirm={handleBulkDeleteConfirm}
+        title="Delete Brands"
+        message={`Are you sure you want to delete ${selectedRows.length} brand${selectedRows.length === 1 ? '' : 's'}? This action cannot be undone.`}
         confirmColor="error"
         confirmLabel="Delete"
       />

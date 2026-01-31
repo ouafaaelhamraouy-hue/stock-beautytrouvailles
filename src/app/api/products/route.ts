@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { Prisma, PurchaseSource } from '@prisma/client';
 import { hasPermission } from '@/lib/permissions';
 import { calculateMargin, calculateNetMargin, calculateCurrentStock } from '@/lib/calculations';
+import { recalcArrivageTotals } from '@/lib/arrivageTotals';
 
 export async function GET(request: Request) {
   try {
@@ -25,6 +26,9 @@ export async function GET(request: Request) {
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'PRODUCTS_READ')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -45,6 +49,7 @@ export async function GET(request: Request) {
     // Build where clause with stock filtering at database level
     const where: Prisma.ProductWhereInput = {
       isActive: true,
+      organizationId: userProfile.organizationId,
     };
     
     if (categoryId) {
@@ -67,8 +72,8 @@ export async function GET(request: Request) {
     // but we'll optimize by only fetching what we need
 
     // Get packaging cost from settings (for net margin calculation)
-    const packagingSetting = await prisma.setting.findUnique({
-      where: { key: 'packagingCostTotal' },
+    const packagingSetting = await prisma.setting.findFirst({
+      where: { key: 'packagingCostTotal', organizationId: userProfile.organizationId },
     });
     const packagingCost = packagingSetting ? parseFloat(packagingSetting.value) : 8.00;
 
@@ -226,6 +231,9 @@ export async function POST(request: Request) {
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'PRODUCTS_CREATE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -251,7 +259,7 @@ export async function POST(request: Request) {
       where: { id: categoryId },
     });
 
-    if (!category) {
+    if (!category || category.organizationId !== userProfile.organizationId) {
       return NextResponse.json({ error: 'Category not found' }, { status: 400 });
     }
 
@@ -260,7 +268,7 @@ export async function POST(request: Request) {
       const arrivage = await prisma.arrivage.findUnique({
         where: { id: arrivageId },
       });
-      if (!arrivage) {
+      if (!arrivage || arrivage.organizationId !== userProfile.organizationId) {
         return NextResponse.json({ error: 'Arrivage not found' }, { status: 400 });
       }
     }
@@ -271,7 +279,7 @@ export async function POST(request: Request) {
       const arrivage = await prisma.arrivage.findUnique({
         where: { id: arrivageId },
       });
-      if (arrivage) {
+      if (arrivage && arrivage.organizationId === userProfile.organizationId) {
         exchangeRate = arrivage.exchangeRate.toNumber();
       }
     }
@@ -289,7 +297,7 @@ export async function POST(request: Request) {
       const brand = await prisma.brand.findUnique({
         where: { id: brandId },
       });
-      if (!brand) {
+      if (!brand || brand.organizationId !== userProfile.organizationId) {
         return NextResponse.json({ error: 'Brand not found' }, { status: 400 });
       }
     }
@@ -309,6 +317,7 @@ export async function POST(request: Request) {
         quantitySold: 0,
         reorderLevel: reorderLevel || 3, // Default to 3 per optimization plan
         arrivageId: arrivageId || null,
+        organizationId: userProfile.organizationId,
       },
       include: {
         category: true,
@@ -316,6 +325,10 @@ export async function POST(request: Request) {
         arrivage: true,
       },
     });
+
+    if (arrivageId) {
+      await recalcArrivageTotals(arrivageId, userProfile.organizationId);
+    }
 
     return NextResponse.json(product, { status: 201 });
   } catch (error: unknown) {

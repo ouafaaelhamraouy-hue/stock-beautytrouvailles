@@ -1,6 +1,6 @@
 'use client';
 
-import { createTheme } from '@mui/material/styles';
+import { createTheme, type ThemeOptions } from '@mui/material/styles';
 import { frFR, enUS } from '@mui/material/locale';
 import { frFR as dataGridFrFR, enUS as dataGridEnUS } from '@mui/x-data-grid/locales';
 import { frFR as datePickersFrFR, enUS as datePickersEnUS } from '@mui/x-date-pickers/locales';
@@ -140,8 +140,21 @@ export const getTheme = (locale: 'fr' | 'en' = 'en', mode: 'light' | 'dark' = 'l
         '0px 20px 25px -5px rgba(0, 0, 0, 0.1), 0px 10px 10px -5px rgba(0, 0, 0, 0.04)',
         '0px 25px 50px -12px rgba(0, 0, 0, 0.25)',
         ...Array(18).fill('0px 25px 50px -12px rgba(0, 0, 0, 0.25)'),
-      ],
+      ] as ThemeOptions['shadows'],
       components: {
+        MuiCssBaseline: {
+          styleOverrides: {
+            ':root': {
+              colorScheme: mode,
+            },
+            body: {
+              backgroundColor: isDark ? '#0F172A' : '#F9FAFB',
+            },
+            '.theme-transition, .theme-transition *': {
+              transition: 'background-color 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease',
+            },
+          },
+        },
         // Button overrides - clean and professional
         MuiButton: {
           styleOverrides: {
@@ -342,7 +355,7 @@ export const getTheme = (locale: 'fr' | 'en' = 'en', mode: 'light' | 'dark' = 'l
             },
           },
         },
-      },
+      } as ThemeOptions['components'],
     },
     muiLocale,
     dataGridLocale,

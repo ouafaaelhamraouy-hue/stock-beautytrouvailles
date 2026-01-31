@@ -26,13 +26,16 @@ export async function GET(
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'PRODUCTS_READ')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const category = await prisma.category.findUnique({
-      where: { id },
+    const category = await prisma.category.findFirst({
+      where: { id, organizationId: userProfile.organizationId },
     });
 
     if (!category) {
@@ -72,6 +75,9 @@ export async function PUT(
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'PRODUCTS_UPDATE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -80,8 +86,8 @@ export async function PUT(
     const body = await request.json();
     const { name, description } = body;
 
-    const existingCategory = await prisma.category.findUnique({
-      where: { id },
+    const existingCategory = await prisma.category.findFirst({
+      where: { id, organizationId: userProfile.organizationId },
     });
 
     if (!existingCategory) {
@@ -90,8 +96,8 @@ export async function PUT(
 
     // If name is being changed, check if new name already exists
     if (name && name !== existingCategory.name) {
-      const nameExists = await prisma.category.findUnique({
-        where: { name },
+      const nameExists = await prisma.category.findFirst({
+        where: { name, organizationId: userProfile.organizationId },
       });
 
       if (nameExists) {
@@ -143,13 +149,16 @@ export async function DELETE(
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'PRODUCTS_DELETE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const category = await prisma.category.findUnique({
-      where: { id },
+    const category = await prisma.category.findFirst({
+      where: { id, organizationId: userProfile.organizationId },
       include: {
         products: true,
       },

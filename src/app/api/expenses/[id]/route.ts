@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
+import { recalcArrivageTotals } from '@/lib/arrivageTotals';
 
 export async function GET(
   request: Request,
@@ -26,13 +27,16 @@ export async function GET(
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'EXPENSES_READ')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const expense = await prisma.expense.findUnique({
-      where: { id },
+    const expense = await prisma.expense.findFirst({
+      where: { id, organizationId: userProfile.organizationId },
       include: {
         arrivage: true,
       },
@@ -45,6 +49,8 @@ export async function GET(
     // Format response
     const formattedExpense = {
       ...expense,
+      amountEUR: Number(expense.amountEUR),
+      amountDH: Number(expense.amountDH),
       shipmentId: expense.arrivageId,
       shipment: expense.arrivage ? {
         id: expense.arrivage.id,
@@ -88,6 +94,9 @@ export async function PUT(
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'EXPENSES_UPDATE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -99,8 +108,8 @@ export async function PUT(
     // Support both shipmentId (for backward compatibility) and arrivageId
     const finalArrivageId = arrivageId || shipmentId;
 
-    const existingExpense = await prisma.expense.findUnique({
-      where: { id },
+    const existingExpense = await prisma.expense.findFirst({
+      where: { id, organizationId: userProfile.organizationId },
     });
 
     if (!existingExpense) {
@@ -113,7 +122,7 @@ export async function PUT(
         where: { id: finalArrivageId },
       });
 
-      if (!arrivage) {
+      if (!arrivage || arrivage.organizationId !== userProfile.organizationId) {
         return NextResponse.json({ error: 'Arrivage not found' }, { status: 404 });
       }
     }
@@ -124,7 +133,7 @@ export async function PUT(
         date: date ? new Date(date) : existingExpense.date,
         amountEUR: amountEUR !== undefined ? amountEUR : existingExpense.amountEUR,
         amountDH: amountDH !== undefined ? amountDH : existingExpense.amountDH,
-        description: description || existingExpense.description,
+        description: description ?? existingExpense.description,
         type: type || existingExpense.type,
         arrivageId: finalArrivageId !== undefined ? (finalArrivageId || null) : existingExpense.arrivageId,
       },
@@ -132,10 +141,20 @@ export async function PUT(
         arrivage: true,
       },
     });
+    const oldArrivageId = existingExpense.arrivageId;
+    const newArrivageId = expense.arrivageId;
+    if (oldArrivageId) {
+      await recalcArrivageTotals(oldArrivageId, userProfile.organizationId);
+    }
+    if (newArrivageId && newArrivageId !== oldArrivageId) {
+      await recalcArrivageTotals(newArrivageId, userProfile.organizationId);
+    }
 
     // Format response
     const formattedExpense = {
       ...expense,
+      amountEUR: Number(expense.amountEUR),
+      amountDH: Number(expense.amountDH),
       shipmentId: expense.arrivageId,
       shipment: expense.arrivage ? {
         id: expense.arrivage.id,
@@ -179,22 +198,28 @@ export async function DELETE(
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'EXPENSES_DELETE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const expense = await prisma.expense.findUnique({
-      where: { id },
+    const expense = await prisma.expense.findFirst({
+      where: { id, organizationId: userProfile.organizationId },
     });
 
     if (!expense) {
       return NextResponse.json({ error: 'Expense not found' }, { status: 404 });
     }
 
-    await prisma.expense.delete({
+    const deletedExpense = await prisma.expense.delete({
       where: { id },
     });
+    if (deletedExpense.arrivageId) {
+      await recalcArrivageTotals(deletedExpense.arrivageId, userProfile.organizationId);
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

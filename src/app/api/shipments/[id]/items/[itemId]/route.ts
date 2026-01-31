@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
+import { recalcArrivageTotals } from '@/lib/arrivageTotals';
 
 /**
  * DELETE /api/shipments/[id]/items/[itemId]
@@ -33,14 +34,17 @@ export async function DELETE(
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'ARRIVAGES_UPDATE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // Verify the product exists and belongs to this arrivage
-    const product = await prisma.product.findUnique({
-      where: { id: productId },
+    const product = await prisma.product.findFirst({
+      where: { id: productId, organizationId: userProfile.organizationId },
     });
 
     if (!product) {
@@ -64,11 +68,11 @@ export async function DELETE(
 
     // Update arrivage product count
     const productCount = await prisma.product.count({
-      where: { arrivageId },
+      where: { arrivageId, organizationId: userProfile.organizationId },
     });
 
     const totalUnits = await prisma.product.aggregate({
-      where: { arrivageId },
+      where: { arrivageId, organizationId: userProfile.organizationId },
       _sum: {
         quantityReceived: true,
       },
@@ -81,6 +85,7 @@ export async function DELETE(
         totalUnits: totalUnits._sum.quantityReceived || 0,
       },
     });
+    await recalcArrivageTotals(arrivageId, userProfile.organizationId);
 
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -119,14 +124,17 @@ export async function GET(
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'ARRIVAGES_READ')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // Get the product
-    const product = await prisma.product.findUnique({
-      where: { id: productId },
+    const product = await prisma.product.findFirst({
+      where: { id: productId, organizationId: userProfile.organizationId },
       include: {
         category: true,
         brand: true,
@@ -182,6 +190,9 @@ export async function PUT(
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'ARRIVAGES_UPDATE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -200,8 +211,8 @@ export async function PUT(
     }
 
     // Verify the product exists and belongs to this arrivage
-    const product = await prisma.product.findUnique({
-      where: { id: productId },
+    const product = await prisma.product.findFirst({
+      where: { id: productId, organizationId: userProfile.organizationId },
     });
 
     if (!product) {
@@ -246,6 +257,7 @@ export async function PUT(
         await tx.stockMovement.create({
           data: {
             productId,
+            organizationId: userProfile.organizationId,
             type: 'ADJUSTMENT',
             quantity: delta,
             previousQty: currentStock,
@@ -262,7 +274,7 @@ export async function PUT(
 
     // Update arrivage total units
     const totalUnits = await prisma.product.aggregate({
-      where: { arrivageId },
+      where: { arrivageId, organizationId: userProfile.organizationId },
       _sum: {
         quantityReceived: true,
       },
@@ -274,6 +286,7 @@ export async function PUT(
         totalUnits: totalUnits._sum.quantityReceived || 0,
       },
     });
+    await recalcArrivageTotals(arrivageId, userProfile.organizationId);
 
     return NextResponse.json(updatedProduct);
   } catch (error) {

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import { Prisma, PurchaseSource } from '@prisma/client';
 
 type ImportedProduct = {
   name?: string;
@@ -250,13 +250,19 @@ export async function POST(request: Request) {
             // Same product can appear in multiple arrivages, so we create a new product record
             // linked to this specific arrivage
 
+            const purchaseSourceValue = Object.values(PurchaseSource).includes(
+              (purchaseSource || '').toString().toUpperCase() as PurchaseSource
+            )
+              ? ((purchaseSource || '').toString().toUpperCase() as PurchaseSource)
+              : PurchaseSource.OTHER;
+
             // Create product linked to this arrivage
             await prisma.product.create({
               data: {
                 name: nameStr,
                 brandId: null, // Use brandId instead of brand
                 categoryId: category.id,
-                purchaseSource: purchaseSource || 'OTHER',
+                purchaseSource: purchaseSourceValue,
                 purchasePriceEur: purchasePriceEur && purchasePriceEur > 0 ? purchasePriceEur : null,
                 purchasePriceMad: finalPurchasePriceMadValue,
                 sellingPriceDh: finalSellingPriceDh,
@@ -270,7 +276,7 @@ export async function POST(request: Request) {
 
             results.productsCreated++;
           } catch (error: unknown) {
-            if (error instanceof PrismaClientKnownRequestError && error.code === 'P2002') {
+            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
               // Unique constraint violation (shouldn't happen with current schema)
               results.skipped++;
             } else {

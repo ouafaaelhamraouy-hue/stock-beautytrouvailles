@@ -22,6 +22,9 @@ export async function GET() {
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     // Dashboard is readable by all authenticated users (ADMIN and STAFF)
     // Permission check is optional here, but we keep it for consistency
@@ -41,41 +44,46 @@ export async function GET() {
     ] = await Promise.all([
       // Total active products
       prisma.product.count({
-        where: { isActive: true },
+        where: { isActive: true, organizationId: userProfile.organizationId },
       }),
       // Total arrivages
-      prisma.arrivage.count(),
+      prisma.arrivage.count({
+        where: { organizationId: userProfile.organizationId },
+      }),
       // Sales this month
       prisma.sale.count({
         where: {
+          organizationId: userProfile.organizationId,
           saleDate: {
             gte: startOfMonth,
           },
         },
       }),
-      // Inventory value (stock * selling price) - optimized
+      // Inventory value (stock * purchase price) - optimized
       prisma.product.findMany({
-        where: { isActive: true },
+        where: { isActive: true, organizationId: userProfile.organizationId },
         select: {
           quantityReceived: true,
           quantitySold: true,
-          sellingPriceDh: true,
+          purchasePriceMad: true,
         },
       }).then((products) => {
         return products.reduce((sum, p) => {
           const stock = p.quantityReceived - p.quantitySold;
-          return sum + (stock > 0 ? Number(p.sellingPriceDh) * stock : 0);
+          const unitCost = p.purchasePriceMad ? Number(p.purchasePriceMad) : 0;
+          return sum + (stock > 0 ? unitCost * stock : 0);
         }, 0);
       }),
       // Total revenue (from sales)
       prisma.sale.aggregate({
+        where: { organizationId: userProfile.organizationId },
         _sum: {
           totalAmount: true,
         },
       }).then((result) => Number(result._sum.totalAmount || 0)),
       // Low stock count (stock <= reorderLevel or stock = 0) - optimized
       prisma.product.findMany({
-        where: { isActive: true },
+        where: { isActive: true, organizationId: userProfile.organizationId },
         select: {
           quantityReceived: true,
           quantitySold: true,
@@ -91,7 +99,7 @@ export async function GET() {
 
     // Calculate average margin from all products (parallel with other queries)
     const productsForMargin = await prisma.product.findMany({
-      where: { isActive: true },
+      where: { isActive: true, organizationId: userProfile.organizationId },
       select: {
         purchasePriceMad: true,
         sellingPriceDh: true,
@@ -99,8 +107,8 @@ export async function GET() {
     });
 
     // Get packaging cost from settings (default 8.00 DH)
-    const packagingSetting = await prisma.setting.findUnique({
-      where: { key: 'packagingCostTotal' },
+    const packagingSetting = await prisma.setting.findFirst({
+      where: { key: 'packagingCostTotal', organizationId: userProfile.organizationId },
     });
     const packagingCost = packagingSetting ? parseFloat(packagingSetting.value) : 8.00;
 

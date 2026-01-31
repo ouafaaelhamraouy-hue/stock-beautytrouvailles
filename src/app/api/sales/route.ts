@@ -63,13 +63,40 @@ export async function GET(request: Request) {
             category: true,
           },
         },
+        items: {
+          include: {
+            product: {
+              include: {
+                category: true,
+              },
+            },
+          },
+        },
       },
       orderBy: {
         saleDate: 'desc',
       },
     });
 
-    return NextResponse.json(sales);
+    const toNumber = (value: unknown) =>
+      typeof value === 'number'
+        ? value
+        : typeof (value as { toNumber?: () => number })?.toNumber === 'function'
+          ? (value as { toNumber: () => number }).toNumber()
+          : Number(value) || 0;
+
+    const normalized = sales.map((sale) => ({
+      ...sale,
+      pricePerUnit: sale.pricePerUnit !== null ? toNumber(sale.pricePerUnit) : null,
+      totalAmount: toNumber(sale.totalAmount),
+      bundlePriceTotal: sale.bundlePriceTotal !== null ? toNumber(sale.bundlePriceTotal) : null,
+      items: sale.items?.map((item) => ({
+        ...item,
+        pricePerUnit: toNumber(item.pricePerUnit),
+      })),
+    }));
+
+    return NextResponse.json(normalized);
   } catch (error) {
     console.error('Error fetching sales:', error);
     return NextResponse.json(
@@ -118,103 +145,252 @@ export async function POST(request: Request) {
       );
     }
 
-    const { productId, quantity, pricePerUnit, isPromo = false, saleDate, notes } = validationResult.data;
+    const {
+      productId,
+      quantity,
+      pricePerUnit,
+      pricingMode = 'REGULAR',
+      bundlePriceTotal,
+      items,
+      isPromo = false,
+      saleDate,
+      notes,
+    } = validationResult.data;
 
-    // Fetch product with category and optional arrivage for display
-    const product = await prisma.product.findUnique({
-      where: { id: productId },
-      include: {
-        category: true,
-        arrivage: {
-          select: {
-            reference: true,
-          },
-        },
-      },
-    });
-
-    if (!product) {
-      return NextResponse.json({ error: 'Product not found' }, { status: 404 });
-    }
-
-    // Calculate available stock: quantityReceived - quantitySold
-    const availableStock = product.quantityReceived - product.quantitySold;
-
-    // Guardrail: Check if enough stock is available
-    if (quantity > availableStock) {
-      return NextResponse.json(
-        { error: `Insufficient stock. Available: ${availableStock}, Requested: ${quantity}` },
-        { status: 409 }
-      );
-    }
-
-    // Rule: Custom deals - if price is below cost, notes are required
-    const purchasePriceMad = product.purchasePriceMad ? Number(product.purchasePriceMad) : 0;
-    if (purchasePriceMad > 0 && pricePerUnit < purchasePriceMad) {
-      if (!notes || notes.trim().length === 0) {
-        return NextResponse.json(
-          { error: 'Notes are required when selling below cost price' },
-          { status: 400 }
-        );
+    const aggregateItems = (bundleItems: NonNullable<typeof items>) => {
+      const map = new Map<string, { productId: string; quantity: number; pricePerUnit: number }>();
+      for (const item of bundleItems) {
+        const existing = map.get(item.productId);
+        if (existing) {
+          existing.quantity += item.quantity;
+          existing.pricePerUnit = item.pricePerUnit;
+        } else {
+          map.set(item.productId, { ...item });
+        }
       }
-    }
+      return Array.from(map.values());
+    };
 
-    // Calculate total amount (must equal quantity * pricePerUnit) - do not trust client
-    const totalAmount = calculateSaleTotal(quantity, pricePerUnit);
-    const expectedTotal = quantity * pricePerUnit;
-    
-    if (Math.abs(totalAmount - expectedTotal) > 0.01) {
-      return NextResponse.json(
-        { error: 'Total amount mismatch. Expected: ' + expectedTotal + ', Got: ' + totalAmount },
-        { status: 400 }
-      );
-    }
+    if (pricingMode !== 'BUNDLE') {
+      if (!productId) {
+        return NextResponse.json({ error: 'Product is required' }, { status: 400 });
+      }
 
-    // Use transaction to ensure atomicity
-    const result = await prisma.$transaction(async (tx) => {
-      // Create sale
-      const sale = await tx.sale.create({
-        data: {
-          productId,
-          quantity,
-          pricePerUnit,
-          totalAmount,
-          isPromo,
-          saleDate: saleDate || new Date(),
-          notes: notes || null,
-        },
+      const product = await prisma.product.findUnique({
+        where: { id: productId },
         include: {
-          product: {
-            include: {
-              category: true,
+          category: true,
+          arrivage: {
+            select: {
+              reference: true,
             },
           },
         },
       });
 
-      // Update product: increment quantitySold
-      const previousQtySold = product.quantitySold;
-      const newQtySold = previousQtySold + quantity;
+      if (!product) {
+        return NextResponse.json({ error: 'Product not found' }, { status: 404 });
+      }
 
-      await tx.product.update({
-        where: { id: productId },
+      const availableStock = product.quantityReceived - product.quantitySold;
+      if (!quantity || quantity > availableStock) {
+        return NextResponse.json(
+          { error: `Insufficient stock. Available: ${availableStock}, Requested: ${quantity || 0}` },
+          { status: 409 }
+        );
+      }
+
+      if (typeof pricePerUnit !== 'number') {
+        return NextResponse.json(
+          { error: 'Price per unit is required' },
+          { status: 400 }
+        );
+      }
+
+      const purchasePriceMad = product.purchasePriceMad ? Number(product.purchasePriceMad) : 0;
+      if (purchasePriceMad > 0 && pricePerUnit < purchasePriceMad) {
+        if (!notes || notes.trim().length === 0) {
+          return NextResponse.json(
+            { error: 'Notes are required when selling below cost price' },
+            { status: 400 }
+          );
+        }
+      }
+
+      const totalAmount = calculateSaleTotal(quantity, pricePerUnit);
+      const expectedTotal = quantity * pricePerUnit;
+      if (Math.abs(totalAmount - expectedTotal) > 0.01) {
+        return NextResponse.json(
+          { error: 'Total amount mismatch. Expected: ' + expectedTotal + ', Got: ' + totalAmount },
+          { status: 400 }
+        );
+      }
+
+      const result = await prisma.$transaction(async (tx) => {
+        const sale = await tx.sale.create({
+          data: {
+            productId,
+            quantity,
+            pricePerUnit,
+            totalAmount,
+            pricingMode,
+            bundlePriceTotal: null,
+            isPromo: pricingMode === 'PROMO' ? true : isPromo,
+            saleDate: saleDate || new Date(),
+            notes: notes || null,
+          },
+          include: {
+            product: {
+              include: {
+                category: true,
+              },
+            },
+            items: {
+              include: {
+                product: true,
+              },
+            },
+          },
+        });
+
+        const previousQtySold = product.quantitySold;
+        const newQtySold = previousQtySold + quantity;
+
+        await tx.product.update({
+          where: { id: productId },
+          data: {
+            quantitySold: newQtySold,
+          },
+        });
+
+        await tx.stockMovement.create({
+          data: {
+            productId,
+            type: 'SALE',
+            quantity: -quantity,
+            previousQty: product.quantityReceived - previousQtySold,
+            newQty: product.quantityReceived - newQtySold,
+            reference: `Sale ${sale.id}`,
+            userId: user.id,
+          },
+        });
+
+        return sale;
+      });
+
+      return NextResponse.json(result, { status: 201 });
+    }
+
+    const bundleItems = items ? aggregateItems(items) : [];
+    if (bundleItems.length < 2) {
+      return NextResponse.json(
+        { error: 'At least two items are required for a bundle' },
+        { status: 400 }
+      );
+    }
+
+    const productIds = bundleItems.map((i) => i.productId);
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+    });
+    if (products.length !== productIds.length) {
+      return NextResponse.json({ error: 'One or more products not found' }, { status: 404 });
+    }
+
+    for (const item of bundleItems) {
+      const product = products.find((p) => p.id === item.productId);
+      if (!product) continue;
+      const availableStock = product.quantityReceived - product.quantitySold;
+      if (item.quantity > availableStock) {
+        return NextResponse.json(
+          { error: `Insufficient stock for ${product.name}. Available: ${availableStock}, Requested: ${item.quantity}` },
+          { status: 409 }
+        );
+      }
+    }
+
+    for (const item of bundleItems) {
+      const product = products.find((p) => p.id === item.productId);
+      if (!product) continue;
+      const purchasePriceMad = product.purchasePriceMad ? Number(product.purchasePriceMad) : 0;
+      if (purchasePriceMad > 0 && item.pricePerUnit < purchasePriceMad) {
+        if (!notes || notes.trim().length === 0) {
+          return NextResponse.json(
+            { error: 'Notes are required when selling below cost price' },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
+    const totalAmount = bundleItems.reduce(
+      (sum, item) => sum + item.quantity * item.pricePerUnit,
+      0
+    );
+
+    if (typeof bundlePriceTotal === 'number' && Math.abs(bundlePriceTotal - totalAmount) > 0.01) {
+      return NextResponse.json(
+        { error: 'Bundle total mismatch. Expected: ' + totalAmount + ', Got: ' + bundlePriceTotal },
+        { status: 400 }
+      );
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const sale = await tx.sale.create({
         data: {
-          quantitySold: newQtySold,
+          productId: null,
+          quantity: null,
+          pricePerUnit: null,
+          totalAmount,
+          pricingMode: 'BUNDLE',
+          bundlePriceTotal: totalAmount,
+          isPromo: true,
+          saleDate: saleDate || new Date(),
+          notes: notes || null,
+          items: {
+            create: bundleItems.map((item) => ({
+              productId: item.productId,
+              quantity: item.quantity,
+              pricePerUnit: item.pricePerUnit,
+            })),
+          },
+        },
+        include: {
+          items: {
+            include: {
+              product: {
+                include: {
+                  category: true,
+                },
+              },
+            },
+          },
         },
       });
 
-      // Create StockMovement entry
-      await tx.stockMovement.create({
-        data: {
-          productId,
-          type: 'SALE',
-          quantity: -quantity, // Negative for outbound
-          previousQty: product.quantityReceived - previousQtySold,
-          newQty: product.quantityReceived - newQtySold,
-          reference: `Sale ${sale.id}`,
-          userId: user.id,
-        },
-      });
+      for (const item of bundleItems) {
+        const product = products.find((p) => p.id === item.productId);
+        if (!product) continue;
+        const previousQtySold = product.quantitySold;
+        const newQtySold = previousQtySold + item.quantity;
+
+        await tx.product.update({
+          where: { id: item.productId },
+          data: { quantitySold: newQtySold },
+        });
+
+        await tx.stockMovement.create({
+          data: {
+            productId: item.productId,
+            type: 'SALE',
+            quantity: -item.quantity,
+            previousQty: product.quantityReceived - previousQtySold,
+            newQty: product.quantityReceived - newQtySold,
+            reference: `Sale ${sale.id} (bundle)`,
+            userId: user.id,
+          },
+        });
+      }
 
       return sale;
     });

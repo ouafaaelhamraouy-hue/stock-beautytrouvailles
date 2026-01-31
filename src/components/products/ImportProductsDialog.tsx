@@ -16,7 +16,6 @@ import {
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CloseIcon from '@mui/icons-material/Close';
-import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 
 interface ImportProductsDialogProps {
@@ -40,6 +39,25 @@ type ImportedProduct = {
   quantityReceived: number;
   quantitySold: number;
   categoryName?: string;
+};
+
+const toNumber = (value: unknown) => {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const normalized = value.replace(',', '.');
+    const parsed = parseFloat(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+};
+
+const toInt = (value: unknown) => {
+  if (typeof value === 'number') return Math.trunc(value);
+  if (typeof value === 'string') {
+    const parsed = parseInt(value.replace(',', '.'), 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
 };
 
 export function ImportProductsDialog({ open, onClose, onImport }: ImportProductsDialogProps) {
@@ -72,9 +90,10 @@ export function ImportProductsDialog({ open, onClose, onImport }: ImportProducts
 
     // Read file
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const data = e.target?.result;
+        const XLSX = await import('xlsx');
         const workbook = XLSX.read(data, { type: 'binary' });
         
         // Filter sheets that start with "COMMANDE" and skip "Charges" and "FOND"
@@ -95,7 +114,7 @@ export function ImportProductsDialog({ open, onClose, onImport }: ImportProducts
           const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
           // Map Excel columns to our format
-          const mappedProducts = jsonData
+          const mappedProducts: ImportedProduct[] = jsonData
             .map((row) => {
               const rowData = row as Record<string, unknown>;
               const produit = rowData.Produit || rowData.produit || rowData['Produit'] || rowData.Name || rowData.name || rowData.Product || '';
@@ -107,12 +126,12 @@ export function ImportProductsDialog({ open, onClose, onImport }: ImportProducts
               const qtVendu = rowData['Qt vendu'] || rowData['Qt Vendu'] || rowData.qtVendu || rowData.quantitySold || rowData['Quantity Sold'] || 0;
               const category = rowData.Category || rowData.category || rowData.Catégorie || rowData.catégorie || '';
 
-            const purchasePriceEur = parseFloat(paEur) || null;
-            const purchasePriceMad = parseFloat(paMad) || 0;
-            const sellingPriceDh = parseFloat(pv) || 0;
-            const promoPriceDh = parseFloat(promo) || null;
-            const quantityReceived = parseInt(quantite) || 0;
-            const quantitySold = parseInt(qtVendu) || 0;
+            const purchasePriceEur = toNumber(paEur);
+            const purchasePriceMad = toNumber(paMad);
+            const sellingPriceDh = toNumber(pv);
+            const promoPriceDh = toNumber(promo);
+            const quantityReceived = toInt(quantite);
+            const quantitySold = toInt(qtVendu);
 
             // Skip invalid rows
             const produitStr = produit.toString().trim();
@@ -128,7 +147,7 @@ export function ImportProductsDialog({ open, onClose, onImport }: ImportProducts
             }
 
             // Skip if PA and Quantité are both empty/null (summary rows)
-            if ((!paMad || paMad === 0) && (!purchasePriceEur || purchasePriceEur === 0) && quantityReceived === 0) {
+            if ((!purchasePriceMad || purchasePriceMad === 0) && (!purchasePriceEur || purchasePriceEur === 0) && quantityReceived === 0) {
               return null;
             }
 
@@ -147,16 +166,17 @@ export function ImportProductsDialog({ open, onClose, onImport }: ImportProducts
               return null;
             }
 
-            return {
+            const product: ImportedProduct = {
               name: produit.toString().trim(),
-              purchasePriceEur: purchasePriceEur && purchasePriceEur > 0 ? purchasePriceEur : null,
+              purchasePriceEur: purchasePriceEur > 0 ? purchasePriceEur : null,
               purchasePriceMad,
               sellingPriceDh,
-              promoPriceDh: promoPriceDh && promoPriceDh > 0 ? promoPriceDh : null,
+              promoPriceDh: promoPriceDh > 0 ? promoPriceDh : null,
               quantityReceived,
               quantitySold,
               categoryName: category.toString().trim() || undefined,
             };
+            return product;
           })
             .filter((product): product is ImportedProduct => product !== null);
 
@@ -215,6 +235,7 @@ export function ImportProductsDialog({ open, onClose, onImport }: ImportProducts
       reader.onload = async (e) => {
         try {
           const data = e.target?.result;
+          const XLSX = await import('xlsx');
           const workbook = XLSX.read(data, { type: 'binary' });
           
           // Filter sheets that start with "COMMANDE"
@@ -230,7 +251,7 @@ export function ImportProductsDialog({ open, onClose, onImport }: ImportProducts
             const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
             // Map Excel columns to our format
-            const mappedProducts = jsonData
+            const mappedProducts: ImportedProduct[] = jsonData
               .map((row) => {
                 const rowData = row as Record<string, unknown>;
                 const produit = rowData.Produit || rowData.produit || rowData['Produit'] || rowData.Name || rowData.name || rowData.Product || '';
@@ -242,12 +263,12 @@ export function ImportProductsDialog({ open, onClose, onImport }: ImportProducts
                 const qtVendu = rowData['Qt vendu'] || rowData['Qt Vendu'] || rowData.qtVendu || rowData.quantitySold || rowData['Quantity Sold'] || 0;
                 const category = rowData.Category || rowData.category || rowData.Catégorie || rowData.catégorie || '';
 
-              const purchasePriceEur = parseFloat(paEur) || null;
-              const purchasePriceMad = parseFloat(paMad) || 0;
-              const sellingPriceDh = parseFloat(pv) || 0;
-              const promoPriceDh = parseFloat(promo) || null;
-              const quantityReceived = parseInt(quantite) || 0;
-              const quantitySold = parseInt(qtVendu) || 0;
+              const purchasePriceEur = toNumber(paEur);
+              const purchasePriceMad = toNumber(paMad);
+              const sellingPriceDh = toNumber(pv);
+              const promoPriceDh = toNumber(promo);
+              const quantityReceived = toInt(quantite);
+              const quantitySold = toInt(qtVendu);
 
               // Skip invalid rows
               const produitStr = produit.toString().trim();
@@ -282,16 +303,17 @@ export function ImportProductsDialog({ open, onClose, onImport }: ImportProducts
                 return null;
               }
 
-                return {
+                const product: ImportedProduct = {
                   name: produit.toString().trim(),
-                  purchasePriceEur: purchasePriceEur && purchasePriceEur > 0 ? purchasePriceEur : null,
+                  purchasePriceEur: purchasePriceEur > 0 ? purchasePriceEur : null,
                   purchasePriceMad,
                   sellingPriceDh,
-                  promoPriceDh: promoPriceDh && promoPriceDh > 0 ? promoPriceDh : null,
+                  promoPriceDh: promoPriceDh > 0 ? promoPriceDh : null,
                   quantityReceived,
                   quantitySold,
                   categoryName: category.toString().trim() || undefined,
                 };
+                return product;
               })
               .filter((product): product is ImportedProduct => product !== null);
 

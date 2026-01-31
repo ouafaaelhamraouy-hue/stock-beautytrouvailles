@@ -28,6 +28,7 @@ import {
   Tag,
   Storefront,
   GearSix,
+  UsersThree,
   CaretLeft,
   CaretRight,
   type Icon,
@@ -36,6 +37,7 @@ import { useUserProfile } from '@/hooks/useUserProfile';
 import { useAuth } from '@/contexts/AuthContext';
 import { useState } from 'react';
 import { NavIcon } from './NavIcon';
+import { isAdmin as isAdminRole, isSuperAdmin as isSuperAdminRole } from '@/lib/permissions';
 
 const EXPANDED_WIDTH = 260;
 const COLLAPSED_WIDTH = 72;
@@ -55,6 +57,7 @@ interface NavItem {
   icon: Icon;
   path: string;
   adminOnly?: boolean;
+  superAdminOnly?: boolean;
   badge?: number;
 }
 
@@ -89,7 +92,8 @@ export function Sidebar({
   // If prop is provided, use it (controlled mode). Otherwise use internal state (uncontrolled mode)
   const collapsed = collapsedProp !== undefined ? collapsedProp : internalCollapsed;
 
-  const isAdmin = profile?.role === 'ADMIN';
+  const isAdmin = profile ? isAdminRole(profile.role) : false;
+  const isSuperAdmin = profile ? isSuperAdminRole(profile.role) : false;
   const isCollapsed = !isMobile && collapsed;
   const drawerWidth = isCollapsed ? COLLAPSED_WIDTH : EXPANDED_WIDTH;
 
@@ -130,6 +134,7 @@ export function Sidebar({
     { label: t('categories'), icon: Tag, path: '/categories', adminOnly: true },
     { label: t('brands'), icon: Storefront, path: '/brands', adminOnly: true },
     { label: t('settings'), icon: GearSix, path: '/settings', adminOnly: true },
+    { label: t('team'), icon: UsersThree, path: '/admin/team', superAdminOnly: true },
   ];
 
   const sections: NavSection[] = [
@@ -139,10 +144,16 @@ export function Sidebar({
   ];
 
   // Filter items based on admin status
-  const filteredSections = sections.map((section) => ({
-    ...section,
-    items: section.items.filter((item) => !item.adminOnly || isAdmin),
-  })).filter((section) => section.items.length > 0);
+  const filteredSections = sections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => {
+        if (item.superAdminOnly) return isSuperAdmin;
+        if (item.adminOnly) return isAdmin;
+        return true;
+      }),
+    }))
+    .filter((section) => section.items.length > 0);
 
   const isActive = (path: string) => {
     return pathname === path || pathname?.startsWith(path + '/');
@@ -488,7 +499,11 @@ export function Sidebar({
                   fontSize: '0.6875rem',
                 }}
               >
-                {profile?.role === 'ADMIN' ? 'Admin' : 'Staff'}
+                {profile?.role === 'SUPER_ADMIN'
+                  ? 'Super Admin'
+                  : profile?.role === 'ADMIN'
+                    ? 'Admin'
+                    : 'Staff'}
               </Typography>
             </Box>
           </Box>

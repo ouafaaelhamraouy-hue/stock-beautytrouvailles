@@ -1,19 +1,22 @@
 'use client';
 
+import { useState } from 'react';
 import {
   DataGrid,
   GridColDef,
+  GridRowSelectionModel,
   GridToolbar,
 } from '@mui/x-data-grid';
-import { Box, Button, LinearProgress } from '@mui/material';
+import { Box, Button, LinearProgress, Menu, MenuItem } from '@mui/material';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import LabelIcon from '@mui/icons-material/Label';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
-import * as XLSX from 'xlsx';
-import { CurrencyDisplay } from '@/components/ui';
-import { StatusBadge } from '@/components/ui';
-import { EmptyState } from '@/components/ui';
+import { BulkActionBar, ConfirmDialog, CurrencyDisplay, EmptyState, StatusBadge, TableHeader } from '@/components/ui';
 import WarehouseIcon from '@mui/icons-material/Warehouse';
+import { useUserProfile } from '@/hooks/useUserProfile';
+import { hasPermission } from '@/lib/permissions';
 
 interface InventoryItem {
   id: string;
@@ -50,6 +53,10 @@ interface InventoryTableProps {
 
 export function InventoryTable({ items }: InventoryTableProps) {
   const tInventory = useTranslations('inventory');
+  const [selectedRows, setSelectedRows] = useState<GridRowSelectionModel>([]);
+  const { profile } = useUserProfile();
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const [markMenuAnchor, setMarkMenuAnchor] = useState<null | HTMLElement>(null);
 
   const getStatusLabel = (status: string) => {
     const labels: Record<string, string> = {
@@ -69,13 +76,14 @@ export function InventoryTable({ items }: InventoryTableProps) {
     return colors[status] || 'default';
   };
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     if (items.length === 0) {
       toast.error('No inventory items to export');
       return;
     }
 
     try {
+      const XLSX = await import('xlsx');
       const excelData = items.map((item) => ({
         SKU: item.product.sku,
         'Product Name': item.product.name,
@@ -101,6 +109,92 @@ export function InventoryTable({ items }: InventoryTableProps) {
       console.error('Excel export error:', error);
       toast.error('Failed to export to Excel');
     }
+  };
+
+  const handleBulkExport = async () => {
+    if (selectedRows.length === 0) return;
+    const XLSX = await import('xlsx');
+    const selected = items.filter((item) => selectedRows.includes(item.id));
+    const excelData = selected.map((item) => ({
+      SKU: item.product.sku,
+      'Product Name': item.product.name,
+      Category: item.product.category.name,
+      'Shipment Reference': item.shipment.reference,
+      Supplier: item.shipment.supplier.name,
+      Quantity: item.quantity,
+      Sold: item.quantitySold,
+      Remaining: item.quantityRemaining,
+      'Stock %': `${item.stockPercentage.toFixed(1)}%`,
+      Status: getStatusLabel(item.status),
+      'Cost Per Unit (EUR)': item.costPerUnitEUR,
+      'Cost Per Unit (DH)': item.costPerUnitDH,
+      'Total Cost (EUR)': (item.quantityRemaining * item.costPerUnitEUR).toFixed(2),
+    }));
+    const ws = XLSX.utils.json_to_sheet(excelData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Inventory');
+    XLSX.writeFile(wb, `inventory-${new Date().toISOString().split('T')[0]}.xlsx`);
+    toast.success('Selected inventory exported');
+  };
+
+  const handleBulkMarkOutOfStock = async () => {
+    if (selectedRows.length === 0) return;
+    const selected = items.filter((item) => selectedRows.includes(item.id));
+    const targets = selected.filter((item) => item.quantityRemaining > 0);
+    const skipped = selected.length - targets.length;
+
+    const results = await Promise.allSettled(
+      targets.map(async (item) => {
+        const response = await fetch(`/api/products/${item.id}/adjust-stock`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            delta: -item.quantityRemaining,
+            reason: 'Bulk mark out of stock',
+            notes: 'Bulk inventory action',
+          }),
+        });
+        if (!response.ok) {
+          throw new Error('Failed to update stock');
+        }
+      })
+    );
+
+    const failed = results.filter((result) => result.status === 'rejected').length;
+    const succeeded = results.length - failed;
+    if (succeeded > 0) {
+      toast.success(`Updated ${succeeded} item${succeeded === 1 ? '' : 's'}`);
+    }
+    if (failed > 0) {
+      toast.error(`Failed to update ${failed} item${failed === 1 ? '' : 's'}`);
+    }
+    if (skipped > 0) {
+      toast.info(`Skipped ${skipped} item${skipped === 1 ? '' : 's'} already out of stock`);
+    }
+    setMarkMenuAnchor(null);
+  };
+
+  const handleBulkDeleteConfirm = async () => {
+    if (selectedRows.length === 0) return;
+    const ids = selectedRows.map((id) => String(id));
+    const results = await Promise.allSettled(
+      ids.map(async (id) => {
+        const response = await fetch(`/api/products/${id}`, { method: 'DELETE' });
+        if (!response.ok) {
+          throw new Error('Failed to delete product');
+        }
+      })
+    );
+    const failed = results.filter((result) => result.status === 'rejected').length;
+    const succeeded = results.length - failed;
+    if (succeeded > 0) {
+      toast.success(`Deleted ${succeeded} item${succeeded === 1 ? '' : 's'}`);
+    }
+    if (failed > 0) {
+      toast.error(`Failed to delete ${failed} item${failed === 1 ? '' : 's'}`);
+    }
+    setBulkDeleteDialogOpen(false);
+    setSelectedRows([]);
   };
 
   const columns: GridColDef[] = [
@@ -135,19 +229,22 @@ export function InventoryTable({ items }: InventoryTableProps) {
       field: 'quantity',
       headerName: tInventory('quantity'),
       width: 100,
-      align: 'center',
+      align: 'right',
+      headerAlign: 'right',
     },
     {
       field: 'quantitySold',
       headerName: tInventory('sold'),
       width: 100,
-      align: 'center',
+      align: 'right',
+      headerAlign: 'right',
     },
     {
       field: 'quantityRemaining',
       headerName: tInventory('remaining'),
       width: 120,
-      align: 'center',
+      align: 'right',
+      headerAlign: 'right',
       renderCell: (params) => (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Box sx={{ fontWeight: 600 }}>{params.value}</Box>
@@ -172,7 +269,8 @@ export function InventoryTable({ items }: InventoryTableProps) {
       field: 'stockPercentage',
       headerName: tInventory('stockPercentage'),
       width: 100,
-      align: 'center',
+      align: 'right',
+      headerAlign: 'right',
       valueGetter: (value: number) => `${value.toFixed(1)}%`,
     },
     {
@@ -190,6 +288,8 @@ export function InventoryTable({ items }: InventoryTableProps) {
       field: 'costPerUnitEUR',
       headerName: `${tInventory('costPerUnit')} (EUR)`,
       width: 150,
+      align: 'right',
+      headerAlign: 'right',
       renderCell: (params) => (
         <CurrencyDisplay amount={params.value} currency="EUR" variant="body2" />
       ),
@@ -210,27 +310,80 @@ export function InventoryTable({ items }: InventoryTableProps) {
 
   return (
     <Box sx={{ height: '100%', width: '100%' }}>
-      <Box sx={{ p: 2, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid rgba(0, 0, 0, 0.12)' }}>
-        <Button
-          variant="outlined"
-          startIcon={<FileDownloadIcon />}
-          onClick={handleExportExcel}
-          sx={{
-            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-          }}
-        >
-          {tInventory('exportReport')}
-        </Button>
-        <Box sx={{ flexGrow: 1 }} />
-        <Box sx={{ fontSize: '0.875rem', color: 'text.secondary' }}>
-          {items.length} {items.length === 1 ? 'item' : 'items'}
-        </Box>
-      </Box>
+      <TableHeader
+        left={
+          <Button
+            variant="outlined"
+            startIcon={<FileDownloadIcon />}
+            onClick={handleExportExcel}
+            sx={{
+              boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+            }}
+          >
+            {tInventory('exportReport')}
+          </Button>
+        }
+        totalCount={items.length}
+        selectedCount={selectedRows.length}
+      />
+
+      {selectedRows.length > 0 && (
+        <BulkActionBar
+          count={selectedRows.length}
+          onClear={() => setSelectedRows([])}
+          actions={
+            <>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<FileDownloadIcon />}
+                onClick={handleBulkExport}
+              >
+                Export
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<LabelIcon />}
+                onClick={(event) => setMarkMenuAnchor(event.currentTarget)}
+                disabled={!hasPermission(profile?.role || 'STAFF', 'STOCK_ADJUST')}
+              >
+                Mark status
+              </Button>
+              <Menu
+                anchorEl={markMenuAnchor}
+                open={Boolean(markMenuAnchor)}
+                onClose={() => setMarkMenuAnchor(null)}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+              >
+                <MenuItem onClick={handleBulkMarkOutOfStock}>Out of Stock</MenuItem>
+              </Menu>
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                startIcon={<DeleteIcon />}
+                onClick={() => setBulkDeleteDialogOpen(true)}
+                disabled={!hasPermission(profile?.role || 'STAFF', 'PRODUCTS_DELETE')}
+              >
+                Delete
+              </Button>
+            </>
+          }
+        />
+      )}
 
       <DataGrid
         rows={items}
         columns={columns}
+        checkboxSelection
+        rowSelectionModel={selectedRows}
+        onRowSelectionModelChange={setSelectedRows}
         disableRowSelectionOnClick
+        getRowClassName={(params) =>
+          params.indexRelativeToCurrentPage % 2 === 0 ? 'MuiDataGrid-row--striped' : ''
+        }
         slots={{
           toolbar: GridToolbar,
         }}
@@ -240,34 +393,53 @@ export function InventoryTable({ items }: InventoryTableProps) {
           },
         }}
         pageSizeOptions={[10, 25, 50, 100]}
-        sx={{
+        sx={(theme) => ({
           border: 'none',
           '& .MuiDataGrid-cell': {
-            borderBottom: '1px solid rgba(224, 224, 224, 0.5)',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
             '&:focus': {
               outline: 'none',
             },
           },
+          '& .MuiDataGrid-row--striped': {
+            backgroundColor: theme.palette.mode === 'dark'
+              ? 'rgba(255, 255, 255, 0.03)'
+              : 'rgba(0, 0, 0, 0.02)',
+          },
           '& .MuiDataGrid-row': {
             '&:hover': {
-              backgroundColor: 'rgba(25, 118, 210, 0.04)',
+              backgroundColor: 'action.hover',
             },
           },
           '& .MuiDataGrid-columnHeaders': {
-            backgroundColor: 'rgba(0, 0, 0, 0.02)',
-            borderBottom: '2px solid rgba(0, 0, 0, 0.12)',
+            backgroundColor: 'background.default',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
             fontWeight: 600,
+            fontSize: { xs: '0.75rem', sm: '0.8125rem' },
           },
           '& .MuiDataGrid-toolbarContainer': {
             padding: '12px 16px',
-            backgroundColor: 'rgba(0, 0, 0, 0.02)',
-            borderBottom: '1px solid rgba(0, 0, 0, 0.12)',
+            backgroundColor: 'background.default',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
           },
           '& .MuiDataGrid-footerContainer': {
-            borderTop: '1px solid rgba(0, 0, 0, 0.12)',
-            backgroundColor: 'rgba(0, 0, 0, 0.02)',
+            borderTop: '1px solid',
+            borderColor: 'divider',
           },
-        }}
+        })}
+      />
+
+      <ConfirmDialog
+        open={bulkDeleteDialogOpen}
+        onClose={() => setBulkDeleteDialogOpen(false)}
+        onConfirm={handleBulkDeleteConfirm}
+        title="Delete Inventory Items"
+        message={`Are you sure you want to delete ${selectedRows.length} item${selectedRows.length === 1 ? '' : 's'}? This action cannot be undone.`}
+        confirmColor="error"
+        confirmLabel="Delete"
       />
     </Box>
   );

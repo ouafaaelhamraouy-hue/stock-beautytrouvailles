@@ -1,7 +1,9 @@
 'use client';
 
-import { Box, TextField, MenuItem, Chip, IconButton, Paper } from '@mui/material';
+import { Box, TextField, MenuItem, Chip, IconButton, Paper, Button, Tooltip } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import ClearIcon from '@mui/icons-material/Clear';
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
 
 interface FilterCommandBarProps {
   search: string;
@@ -14,6 +16,8 @@ interface FilterCommandBarProps {
   onSourceChange: (value: string) => void;
   onStockChange: (value: 'low' | 'out' | 'ok' | '') => void;
   onReset: () => void;
+  totalCount: number;
+  visibleCount: number;
 }
 
 const PURCHASE_SOURCE_LABELS: Record<string, string> = {
@@ -45,8 +49,11 @@ export function FilterCommandBar({
   onSourceChange,
   onStockChange,
   onReset,
+  totalCount,
+  visibleCount,
 }: FilterCommandBarProps) {
   const hasActiveFilters = search || category || source || stock;
+  const activeFilterCount = [search, category, source, stock].filter(Boolean).length;
 
   return (
     <Paper
@@ -55,28 +62,51 @@ export function FilterCommandBar({
         position: 'sticky',
         top: { xs: 56, sm: 64 },
         zIndex: 10,
-        p: 2,
-        borderRadius: 0,
-        borderBottom: '1px solid',
+        p: { xs: 1.5, sm: 2 },
+        borderRadius: 2.5,
+        border: '1px solid',
         borderColor: theme.palette.mode === 'dark'
-          ? 'rgba(255, 255, 255, 0.08)'
+          ? 'rgba(255, 255, 255, 0.12)'
           : 'rgba(0, 0, 0, 0.08)',
         backgroundColor: theme.palette.mode === 'dark'
-          ? theme.palette.background.paper
-          : '#FFFFFF',
+          ? alpha(theme.palette.background.paper, 0.65)
+          : alpha(theme.palette.common.white, 0.7),
         boxShadow: theme.palette.mode === 'dark'
-          ? '0 2px 8px rgba(0, 0, 0, 0.3)'
-          : '0 2px 8px rgba(0, 0, 0, 0.04)',
+          ? '0 16px 40px rgba(0, 0, 0, 0.28)'
+          : '0 16px 40px rgba(15, 23, 42, 0.08)',
+        backdropFilter: 'blur(14px)',
+        WebkitBackdropFilter: 'blur(14px)',
       })}
     >
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+      <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
         {/* Search */}
         <TextField
           size="small"
           placeholder="Search products..."
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
-          sx={{ minWidth: 200, flex: 1, maxWidth: 300 }}
+          sx={(theme) => ({
+            minWidth: 220,
+            flex: 1,
+            maxWidth: 360,
+            '& .MuiOutlinedInput-root': {
+              backgroundColor: theme.palette.mode === 'dark'
+                ? alpha(theme.palette.background.paper, 0.9)
+                : alpha(theme.palette.common.white, 0.7),
+              borderRadius: 2,
+            },
+          })}
+          InputProps={{
+            endAdornment: search ? (
+              <IconButton
+                size="small"
+                onClick={() => onSearchChange('')}
+                sx={{ mr: -0.5 }}
+              >
+                <ClearIcon fontSize="small" />
+              </IconButton>
+            ) : undefined,
+          }}
         />
 
         {/* Category */}
@@ -86,7 +116,15 @@ export function FilterCommandBar({
           label="Category"
           value={category}
           onChange={(e) => onCategoryChange(e.target.value)}
-          sx={{ minWidth: 150 }}
+          sx={(theme) => ({
+            minWidth: 160,
+            '& .MuiOutlinedInput-root': {
+              backgroundColor: theme.palette.mode === 'dark'
+                ? alpha(theme.palette.background.paper, 0.9)
+                : alpha(theme.palette.common.white, 0.7),
+              borderRadius: 2,
+            },
+          })}
         >
           <MenuItem value="">All</MenuItem>
           {categories.map((cat) => (
@@ -103,7 +141,15 @@ export function FilterCommandBar({
           label="Source"
           value={source}
           onChange={(e) => onSourceChange(e.target.value)}
-          sx={{ minWidth: 140 }}
+          sx={(theme) => ({
+            minWidth: 150,
+            '& .MuiOutlinedInput-root': {
+              backgroundColor: theme.palette.mode === 'dark'
+                ? alpha(theme.palette.background.paper, 0.9)
+                : alpha(theme.palette.common.white, 0.7),
+              borderRadius: 2,
+            },
+          })}
         >
           <MenuItem value="">All Sources</MenuItem>
           {Object.entries(PURCHASE_SOURCE_LABELS).map(([key, label]) => (
@@ -119,8 +165,16 @@ export function FilterCommandBar({
           size="small"
           label="Stock"
           value={stock}
-          onChange={(e) => onStockChange(e.target.value)}
-          sx={{ minWidth: 140 }}
+          onChange={(e) => onStockChange(e.target.value as 'low' | 'out' | 'ok' | '')}
+          sx={(theme) => ({
+            minWidth: 140,
+            '& .MuiOutlinedInput-root': {
+              backgroundColor: theme.palette.mode === 'dark'
+                ? alpha(theme.palette.background.paper, 0.9)
+                : alpha(theme.palette.common.white, 0.7),
+              borderRadius: 2,
+            },
+          })}
         >
           <MenuItem value="">All Stock</MenuItem>
           {Object.entries(STOCK_LABELS).map(([key, label]) => (
@@ -130,55 +184,85 @@ export function FilterCommandBar({
           ))}
         </TextField>
 
-        {/* Active Filter Chips */}
-        {hasActiveFilters && (
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', ml: 'auto' }}>
-            {search && (
-              <Chip
-                label={`Search: ${search}`}
-                size="small"
-                onDelete={() => onSearchChange('')}
-                deleteIcon={<ClearIcon />}
-              />
-            )}
-            {category && (
-              <Chip
-                label={`Category: ${categories.find(c => c.id === category)?.name || category}`}
-                size="small"
-                onDelete={() => onCategoryChange('')}
-                deleteIcon={<ClearIcon />}
-              />
-            )}
-            {source && (
-              <Chip
-                label={`Source: ${PURCHASE_SOURCE_LABELS[source] || source}`}
-                size="small"
-                onDelete={() => onSourceChange('')}
-                deleteIcon={<ClearIcon />}
-              />
-            )}
-            {stock && (
-              <Chip
-                label={`Stock: ${STOCK_LABELS[stock] || stock}`}
-                size="small"
-                onDelete={() => onStockChange('')}
-                deleteIcon={<ClearIcon />}
-              />
-            )}
-            <IconButton
+        <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Tooltip title="Clear all filters">
+            <Button
               size="small"
+              variant="outlined"
+              startIcon={<RestartAltIcon fontSize="small" />}
               onClick={onReset}
-              sx={{
-                ml: 1,
+              disabled={!hasActiveFilters}
+              sx={(theme) => ({
+                borderColor: alpha(theme.palette.text.primary, 0.2),
+                color: 'text.primary',
+                backgroundColor: theme.palette.mode === 'dark'
+                  ? alpha(theme.palette.background.paper, 0.7)
+                  : alpha(theme.palette.common.white, 0.5),
                 '&:hover': {
-                  backgroundColor: 'action.hover',
+                  borderColor: alpha(theme.palette.text.primary, 0.35),
+                  backgroundColor: theme.palette.mode === 'dark'
+                    ? alpha(theme.palette.background.paper, 0.9)
+                    : alpha(theme.palette.common.white, 0.7),
                 },
-              }}
+              })}
             >
-              <ClearIcon fontSize="small" />
-            </IconButton>
-          </Box>
-        )}
+              Reset
+            </Button>
+          </Tooltip>
+        </Box>
+      </Box>
+
+      <Box sx={{ mt: 1.25, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Chip
+            label={
+              hasActiveFilters
+                ? `${activeFilterCount} filter${activeFilterCount === 1 ? '' : 's'} active`
+                : 'No filters applied'
+            }
+            size="small"
+            variant="outlined"
+          />
+          {search && (
+            <Chip
+              label={`Search: ${search}`}
+              size="small"
+              onDelete={() => onSearchChange('')}
+              deleteIcon={<ClearIcon />}
+            />
+          )}
+          {category && (
+            <Chip
+              label={`Category: ${categories.find(c => c.id === category)?.name || category}`}
+              size="small"
+              onDelete={() => onCategoryChange('')}
+              deleteIcon={<ClearIcon />}
+            />
+          )}
+          {source && (
+            <Chip
+              label={`Source: ${PURCHASE_SOURCE_LABELS[source] || source}`}
+              size="small"
+              onDelete={() => onSourceChange('')}
+              deleteIcon={<ClearIcon />}
+            />
+          )}
+          {stock && (
+            <Chip
+              label={`Stock: ${STOCK_LABELS[stock] || stock}`}
+              size="small"
+              onDelete={() => onStockChange('')}
+              deleteIcon={<ClearIcon />}
+            />
+          )}
+        </Box>
+
+        <Chip
+          label={`Showing ${visibleCount} of ${totalCount}`}
+          size="small"
+          variant="outlined"
+          sx={{ fontWeight: 600 }}
+        />
       </Box>
     </Paper>
   );

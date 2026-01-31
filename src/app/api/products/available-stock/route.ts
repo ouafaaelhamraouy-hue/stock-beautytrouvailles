@@ -27,6 +27,9 @@ export async function GET(request: Request) {
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     // Both admin and staff can read available stock for sales
     if (!hasPermission(userProfile.role, 'SALES_CREATE')) {
@@ -37,7 +40,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const productId = searchParams.get('productId');
 
-    const where: Prisma.ProductWhereInput = {};
+    const where: Prisma.ProductWhereInput = { organizationId: userProfile.organizationId };
     if (productId) {
       where.id = productId;
     }

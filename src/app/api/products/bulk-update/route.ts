@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { updates } = body; // Array of { id, ...fields }
+    const { updates } = body as { updates?: Array<Record<string, unknown>> }; // Array of { id, ...fields }
 
     if (!Array.isArray(updates) || updates.length === 0) {
       return NextResponse.json(
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
     const results = await Promise.allSettled(
       updates.map(async (update: Record<string, unknown>) => {
         const { id, ...updateData } = update || {};
-        if (!id) {
+        if (!id || typeof id !== 'string') {
           throw new Error('Missing product id');
         }
 
@@ -88,6 +88,18 @@ export async function POST(request: Request) {
 
         if (Object.keys(sanitized).length === 0) {
           throw new Error('No valid fields to update');
+        }
+
+        if (sanitized.brandId !== undefined) {
+          sanitized.brand = sanitized.brandId
+            ? { connect: { id: sanitized.brandId as string } }
+            : { disconnect: true };
+          delete sanitized.brandId;
+        }
+
+        if (sanitized.categoryId !== undefined) {
+          sanitized.category = { connect: { id: sanitized.categoryId as string } };
+          delete sanitized.categoryId;
         }
 
         return prisma.product.update({

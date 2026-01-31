@@ -4,7 +4,7 @@ import { memo } from 'react';
 import { Grid, Box, Typography, Paper } from '@mui/material';
 import { StatsCard } from '@/components/ui';
 import InventoryIcon from '@mui/icons-material/Inventory';
-import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import CurrencyExchangeIcon from '@mui/icons-material/CurrencyExchange';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import WarningIcon from '@mui/icons-material/Warning';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
@@ -108,7 +108,7 @@ export const KPICards = memo(function KPICards() {
         </Grid>
         <Grid item xs={12} sm={6} md={4}>
           <StatsCard
-            title="💰 Valeur"
+            title="💰 Valeur achat"
             value={
               <Box component="span" sx={{ display: 'inline-flex', alignItems: 'baseline', gap: 0.5 }}>
                 <Typography
@@ -141,7 +141,7 @@ export const KPICards = memo(function KPICards() {
               </Box>
             }
             subtitle="en stock"
-            icon={<AttachMoneyIcon />}
+            icon={<CurrencyExchangeIcon />}
             color="#EC407A"
           />
         </Grid>

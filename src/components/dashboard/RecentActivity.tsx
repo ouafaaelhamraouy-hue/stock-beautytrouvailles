@@ -7,9 +7,32 @@ import ReceiptIcon from '@mui/icons-material/Receipt';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from '@/i18n/routing';
 import { formatRelativeTime } from '@/lib/format';
+import { useEffect, useState } from 'react';
 
 export function RecentActivity() {
   const router = useRouter();
+  const [enableSecondaryFetches, setEnableSecondaryFetches] = useState(false);
+
+  // Defer less critical fetches until the browser is idle to improve first load.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const idleCallback = (window as Window & {
+      requestIdleCallback?: (cb: () => void) => number;
+      cancelIdleCallback?: (id: number) => void;
+    }).requestIdleCallback;
+
+    if (idleCallback) {
+      const id = idleCallback(() => setEnableSecondaryFetches(true));
+      return () => {
+        (window as Window & { cancelIdleCallback?: (id: number) => void })
+          .cancelIdleCallback?.(id);
+      };
+    }
+
+    const timeoutId = window.setTimeout(() => setEnableSecondaryFetches(true), 1500);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
 
   // Use data from aggregated dashboard summary (shared cache)
   const { data: summaryData } = useQuery({
@@ -33,6 +56,7 @@ export function RecentActivity() {
       return data.shipments || [];
     },
     staleTime: 1000 * 60 * 2, // 2 minutes - less frequently updated
+    enabled: enableSecondaryFetches,
   });
 
   const { data: recentExpenses } = useQuery({
@@ -44,6 +68,7 @@ export function RecentActivity() {
       return data.expenses || [];
     },
     staleTime: 1000 * 60 * 2, // 2 minutes
+    enabled: enableSecondaryFetches,
   });
 
   type DecimalLike = { toNumber: () => number };
@@ -118,7 +143,11 @@ export function RecentActivity() {
       onClick: () => router.push(`/expenses`),
     })),
   ]
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .sort((a, b) => {
+      const dateA = a.date ? new Date(a.date).getTime() : 0;
+      const dateB = b.date ? new Date(b.date).getTime() : 0;
+      return dateB - dateA;
+    })
     .slice(0, 10);
 
   return (
@@ -206,7 +235,7 @@ export function RecentActivity() {
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <span>{activity.subtitle}</span>
                           <span style={{ marginLeft: 'auto' }}>
-                            {formatRelativeTime(activity.date, 'en')}
+                            {formatRelativeTime(activity.date ?? new Date(0), 'en')}
                           </span>
                         </Box>
                       </Typography>

@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
 import { hasPermission, canManageRoles } from '@/lib/permissions';
-import { UserRole } from '@prisma/client';
 
 /**
  * API route to update a user's role
@@ -30,6 +29,12 @@ export async function POST(request: Request) {
     // Check if current user has permission to manage roles
     const currentUserProfile = await prisma.user.findUnique({
       where: { id: currentUser.id },
+      select: {
+        id: true,
+        role: true,
+        isActive: true,
+        organizationId: true,
+      },
     });
 
     if (!currentUserProfile || !currentUserProfile.isActive) {
@@ -58,7 +63,8 @@ export async function POST(request: Request) {
     }
 
     // Validate role
-    const validRoles: UserRole[] = ['SUPER_ADMIN', 'ADMIN', 'STAFF'];
+    const validRoles = ['SUPER_ADMIN', 'ADMIN', 'STAFF'] as const;
+    type UserRole = (typeof validRoles)[number];
     if (!validRoles.includes(role as UserRole)) {
       return NextResponse.json(
         { error: `Invalid role. Must be one of: ${validRoles.join(', ')}` },
@@ -77,6 +83,11 @@ export async function POST(request: Request) {
     // Find user by email
     const user = await prisma.user.findUnique({
       where: { email },
+      select: {
+        id: true,
+        email: true,
+        organizationId: true,
+      },
     });
 
     if (!user) {
@@ -86,10 +97,18 @@ export async function POST(request: Request) {
       );
     }
 
+    // Enforce same-organization role updates
+    if (user.organizationId !== currentUserProfile.organizationId) {
+      return NextResponse.json(
+        { error: 'Forbidden: user belongs to a different organization' },
+        { status: 403 }
+      );
+    }
+
     // Update user role
     const updatedUser = await prisma.user.update({
       where: { email },
-      data: { role: role as UserRole },
+      data: { role: role as UserRole, isActive: true },
     });
 
     return NextResponse.json({

@@ -82,12 +82,17 @@ export function StockAdjustmentDialog({
   };
 
   const onSubmit = async (data: AdjustStockFormData) => {
+    const signedDelta = deltaType === 'increase' ? deltaValue : -deltaValue;
+    const payload: AdjustStockFormData = {
+      ...data,
+      delta: signedDelta,
+    };
     // Calculate new stock
-    const newStock = currentStock + data.delta;
+    const newStock = currentStock + signedDelta;
 
     // Rule: Never allow stock to go below zero
     if (newStock < 0) {
-      toast.error(`Cannot adjust stock below zero. Current stock: ${currentStock}, Delta: ${data.delta}`);
+      toast.error(`Cannot adjust stock below zero. Current stock: ${currentStock}, Delta: ${signedDelta}`);
       return;
     }
 
@@ -96,7 +101,7 @@ export function StockAdjustmentDialog({
       const response = await fetch(`/api/products/${productId}/adjust-stock`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {

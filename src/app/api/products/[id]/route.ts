@@ -27,13 +27,16 @@ export async function GET(
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'PRODUCTS_READ')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const product = await prisma.product.findUnique({
-      where: { id },
+    const product = await prisma.product.findFirst({
+      where: { id, organizationId: userProfile.organizationId },
       include: {
         category: true,
         arrivage: true,
@@ -77,6 +80,9 @@ export async function PATCH(
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'PRODUCTS_UPDATE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -86,10 +92,13 @@ export async function PATCH(
     const updateData: Prisma.ProductUpdateInput = {};
 
     // Get current product to access arrivage exchange rate
-    const currentProduct = await prisma.product.findUnique({
-      where: { id },
+    const currentProduct = await prisma.product.findFirst({
+      where: { id, organizationId: userProfile.organizationId },
       include: { arrivage: true },
     });
+    if (!currentProduct) {
+      return NextResponse.json({ error: 'Product not found' }, { status: 404 });
+    }
 
     let exchangeRate = 10.85; // Default
     if (currentProduct?.arrivage) {
@@ -118,7 +127,7 @@ export async function PATCH(
       const category = await prisma.category.findUnique({
         where: { id: body.categoryId },
       });
-      if (!category) {
+      if (!category || category.organizationId !== userProfile.organizationId) {
         return NextResponse.json({ error: 'Category not found' }, { status: 400 });
       }
     }
@@ -127,15 +136,21 @@ export async function PATCH(
       const brand = await prisma.brand.findUnique({
         where: { id: body.brandId },
       });
-      if (!brand) {
+      if (!brand || brand.organizationId !== userProfile.organizationId) {
         return NextResponse.json({ error: 'Brand not found' }, { status: 400 });
       }
     }
 
     // Only update provided fields
     if (body.name !== undefined) updateData.name = body.name;
-    if (body.brandId !== undefined) updateData.brandId = body.brandId;
-    if (body.categoryId !== undefined) updateData.categoryId = body.categoryId;
+    if (body.brandId !== undefined) {
+      updateData.brand = body.brandId
+        ? { connect: { id: body.brandId } }
+        : { disconnect: true };
+    }
+    if (body.categoryId !== undefined) {
+      updateData.category = { connect: { id: body.categoryId } };
+    }
     if (body.purchaseSource !== undefined) updateData.purchaseSource = body.purchaseSource;
     if (body.purchasePriceEur !== undefined) {
       updateData.purchasePriceEur = body.purchasePriceEur;
@@ -194,6 +209,9 @@ export async function DELETE(
 
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
+    }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
     }
 
     if (!hasPermission(userProfile.role, 'PRODUCTS_DELETE')) {

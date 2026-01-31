@@ -1,30 +1,46 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, type MouseEvent } from 'react';
 import {
   DataGrid,
   GridColDef,
   GridActionsCellItem,
-  GridToolbar,
+  GridToolbarContainer,
   GridToolbarColumnsButton,
   GridToolbarDensitySelector,
   GridToolbarExport,
+  GridRowSelectionModel,
 } from '@mui/x-data-grid';
-import { Box, Chip, Typography } from '@mui/material';
+import {
+  Box,
+  Chip,
+  Typography,
+  useMediaQuery,
+  useTheme,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Autocomplete,
+  TextField,
+  Stack,
+} from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import InventoryIcon from '@mui/icons-material/Inventory';
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import { toast } from 'sonner';
 import { ProductForm } from './ProductForm';
 import { ConfirmDialog } from '@/components/ui';
 import { CurrencyDisplay } from '@/components/ui';
 import { QuickSale } from '@/components/sales/QuickSale';
 import { StockAdjustmentDialog } from './StockAdjustmentDialog';
-import { Dialog, DialogTitle, DialogContent } from '@mui/material';
 import { useUserProfile } from '@/hooks/useUserProfile';
-import { hasPermission } from '@/lib/permissions';
+import { hasPermission, isAdmin as isAdminRole } from '@/lib/permissions';
 import { useQuery } from '@tanstack/react-query';
 import { Product } from '@/hooks/useProducts';
 import type { ProductFormData } from '@/lib/validations';
@@ -83,6 +99,18 @@ interface ProductsTableProps {
   onRowClick?: (product: Product) => void;
   selectedProductId?: string | null;
   onAdjustStock?: (product: Product) => void;
+  onResetStock?: (product: Product) => void;
+  canResetStock?: boolean;
+}
+
+interface ArrivageOption {
+  id: string;
+  reference: string;
+  source: string;
+  status: string;
+  purchaseDate?: string | null;
+  receivedDate?: string | null;
+  exchangeRate: number;
 }
 
 const PURCHASE_SOURCE_LABELS: Record<string, string> = {
@@ -104,7 +132,12 @@ export function ProductsTable({
   onRowClick,
   selectedProductId,
   onAdjustStock,
+  onResetStock,
+  canResetStock = false,
 }: ProductsTableProps) {
+  const theme = useTheme();
+  const isMdDown = useMediaQuery(theme.breakpoints.down('md'));
+  const isSmDown = useMediaQuery(theme.breakpoints.down('sm'));
   const { profile } = useUserProfile();
   const [formOpen, setFormOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -115,7 +148,14 @@ export function ProductsTable({
   const [productToSell, setProductToSell] = useState<ProductTableItem | null>(null);
   const [productToAdjust, setProductToAdjust] = useState<ProductTableItem | null>(null);
   const [availableProducts, setAvailableProducts] = useState<AvailableProduct[]>([]);
-  const isAdmin = profile?.role === 'ADMIN' || profile?.role === 'SUPER_ADMIN';
+  const [selectedRows, setSelectedRows] = useState<GridRowSelectionModel>(
+    selectedProductId ? [selectedProductId] : []
+  );
+  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+  const [assignTargets, setAssignTargets] = useState<ProductTableItem[]>([]);
+  const [selectedArrivage, setSelectedArrivage] = useState<ArrivageOption | null>(null);
+  const [assignLoading, setAssignLoading] = useState(false);
+  const isAdmin = profile ? isAdminRole(profile.role) : false;
 
   // Transform products to table format
   const tableProducts: ProductTableItem[] = products.map(p => ({
@@ -153,6 +193,32 @@ export function ProductsTable({
   });
 
   const brands: Brand[] = brandsData || [];
+
+  const { data: arrivagesData } = useQuery({
+    queryKey: ['arrivages', 'list'],
+    queryFn: async () => {
+      const response = await fetch('/api/shipments?limit=200&sort=receivedDate');
+      if (!response.ok) throw new Error('Failed to fetch arrivages');
+      const data = await response.json();
+      return data.shipments || [];
+    },
+  });
+
+  const arrivageOptions: ArrivageOption[] = (arrivagesData || []).map((arrivage: ArrivageOption) => ({
+    id: arrivage.id,
+    reference: arrivage.reference,
+    source: arrivage.source,
+    status: arrivage.status,
+    purchaseDate: arrivage.purchaseDate,
+    receivedDate: arrivage.receivedDate,
+    exchangeRate: Number(arrivage.exchangeRate) || 0,
+  }));
+
+  useEffect(() => {
+    if (selectedProductId && selectedRows.length === 0) {
+      setSelectedRows([selectedProductId]);
+    }
+  }, [selectedProductId, selectedRows.length]);
 
   const handleEdit = (product: Product) => {
     const tableProduct: ProductTableItem = {
@@ -233,11 +299,18 @@ export function ProductsTable({
   const handleFormSubmit = async (data: ProductFormData) => {
     const url = productToEdit ? `/api/products/${productToEdit.id}` : '/api/products';
     const method = productToEdit ? 'PATCH' : 'POST';
+    const payload = productToEdit
+      ? (() => {
+          const { quantityReceived, ...rest } = data;
+          void quantityReceived;
+          return rest;
+        })()
+      : data;
 
     const response = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
@@ -280,8 +353,71 @@ export function ProductsTable({
   };
 
   const handleAddArrivage = (product: Product) => {
-    // TODO: Open add arrivage dialog/modal
-    toast.info(`Add arrivage for ${product.name} - to be implemented`);
+    const tableProduct = tableProducts.find(p => p.id === product.id);
+    if (!tableProduct) {
+      toast.error('Product not found');
+      return;
+    }
+    setAssignTargets([tableProduct]);
+    setSelectedArrivage(null);
+    setAssignDialogOpen(true);
+  };
+
+  const handleBulkAssignOpen = () => {
+    if (selectedRows.length === 0) {
+      toast.info('Select products to assign');
+      return;
+    }
+    const targets = tableProducts.filter((product) => selectedRows.includes(product.id));
+    if (targets.length === 0) {
+      toast.info('Select products to assign');
+      return;
+    }
+    setAssignTargets(targets);
+    setSelectedArrivage(null);
+    setAssignDialogOpen(true);
+  };
+
+  const handleAssignConfirm = async () => {
+    if (!selectedArrivage) {
+      toast.error('Select an arrivage');
+      return;
+    }
+    if (assignTargets.length === 0) return;
+
+    try {
+      setAssignLoading(true);
+      const results = await Promise.allSettled(
+        assignTargets.map(async (product) => {
+          const response = await fetch(`/api/shipments/${selectedArrivage.id}/items`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ productId: product.id }),
+          });
+          if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to assign product');
+          }
+        })
+      );
+      const failed = results.filter((result) => result.status === 'rejected').length;
+      const succeeded = results.length - failed;
+      if (succeeded > 0) {
+        toast.success(`Assigned ${succeeded} product${succeeded === 1 ? '' : 's'}`);
+      }
+      if (failed > 0) {
+        toast.error(`Failed to assign ${failed} product${failed === 1 ? '' : 's'}`);
+      }
+      setAssignDialogOpen(false);
+      setAssignTargets([]);
+      setSelectedArrivage(null);
+      setSelectedRows([]);
+      onRefresh();
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : 'Failed to assign products');
+    } finally {
+      setAssignLoading(false);
+    }
   };
 
   const handleAdjustStock = (product: Product) => {
@@ -305,11 +441,25 @@ export function ProductsTable({
     onRefresh(); // Refresh products table
   };
 
+  const columnVisibilityModel = {
+    brand: !isSmDown,
+    category: !isSmDown,
+    purchaseSource: !isSmDown,
+    purchasePriceEur: !isMdDown,
+    purchasePriceMad: !isMdDown,
+    promoPriceDh: !isMdDown,
+    quantitySold: !isMdDown,
+    margin: !isMdDown,
+  };
+
+  const showMenuActionsOnly = true;
+
   const columns: GridColDef<ProductTableItem>[] = [
     {
       field: 'name',
       headerName: 'Product',
-      width: 250,
+      minWidth: 200,
+      flex: 1,
       renderCell: (params) => (
         <Box
           sx={{
@@ -326,19 +476,19 @@ export function ProductsTable({
     {
       field: 'brand',
       headerName: 'Brand',
-      width: 120,
+      minWidth: 120,
       valueGetter: (value) => value || '-',
     },
     {
       field: 'category',
       headerName: 'Category',
-      width: 150,
+      minWidth: 140,
       valueGetter: (value, row) => row.category.name,
     },
     {
       field: 'purchaseSource',
       headerName: 'Source',
-      width: 120,
+      minWidth: 120,
       renderCell: (params) => (
         <Chip
           label={PURCHASE_SOURCE_LABELS[params.value] || params.value}
@@ -350,7 +500,14 @@ export function ProductsTable({
     {
       field: 'purchasePriceEur',
       headerName: 'PA (EUR)',
-      width: 110,
+      minWidth: 110,
+      align: 'right',
+      headerAlign: 'right',
+      renderHeader: () => (
+        <Tooltip title="Purchase price in EUR">
+          <span>PA (EUR)</span>
+        </Tooltip>
+      ),
       renderCell: (params) =>
         params.value ? (
           <CurrencyDisplay amount={params.value} currency="EUR" variant="body2" />
@@ -361,7 +518,14 @@ export function ProductsTable({
     {
       field: 'purchasePriceMad',
       headerName: 'PA (MAD)',
-      width: 110,
+      minWidth: 110,
+      align: 'right',
+      headerAlign: 'right',
+      renderHeader: () => (
+        <Tooltip title="Purchase price in MAD">
+          <span>PA (MAD)</span>
+        </Tooltip>
+      ),
       renderCell: (params) => (
         <CurrencyDisplay amount={params.value} currency="DH" variant="body2" />
       ),
@@ -369,7 +533,14 @@ export function ProductsTable({
     {
       field: 'sellingPriceDh',
       headerName: 'PV (DH)',
-      width: 110,
+      minWidth: 110,
+      align: 'right',
+      headerAlign: 'right',
+      renderHeader: () => (
+        <Tooltip title="Selling price in DH">
+          <span>PV (DH)</span>
+        </Tooltip>
+      ),
       renderCell: (params) => (
         <CurrencyDisplay amount={params.value} currency="DH" variant="body2" />
       ),
@@ -377,7 +548,9 @@ export function ProductsTable({
     {
       field: 'promoPriceDh',
       headerName: 'Promo',
-      width: 110,
+      minWidth: 110,
+      align: 'right',
+      headerAlign: 'right',
       renderCell: (params) =>
         params.value ? (
           <CurrencyDisplay amount={params.value} currency="DH" variant="body2" />
@@ -388,7 +561,8 @@ export function ProductsTable({
     {
       field: 'currentStock',
       headerName: 'Stock',
-      width: 120,
+      minWidth: 140,
+      headerAlign: 'left',
       renderCell: (params) => {
         const stock = params.value as number;
         const product = params.row;
@@ -413,12 +587,16 @@ export function ProductsTable({
     {
       field: 'quantitySold',
       headerName: 'Sold',
-      width: 100,
+      minWidth: 90,
+      align: 'right',
+      headerAlign: 'right',
     },
     {
       field: 'margin',
       headerName: 'Margin',
-      width: 100,
+      minWidth: 110,
+      align: 'right',
+      headerAlign: 'right',
       renderCell: (params) => {
         const margin = params.value as number | undefined;
         if (margin === undefined) return <span style={{ color: '#999' }}>-</span>;
@@ -436,7 +614,7 @@ export function ProductsTable({
       field: 'actions',
       type: 'actions',
       headerName: 'Actions',
-      width: 140,
+      minWidth: 70,
       getActions: (params) => {
         const product = products.find(p => p.id === params.id);
         if (!product) return [];
@@ -445,15 +623,15 @@ export function ProductsTable({
         
         // Sell action (available to all)
         actions.push(
-          <GridActionsCellItem
-            icon={<ShoppingCartIcon />}
-            label="Sell"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleSell(product);
-            }}
-            showInMenu={false}
-          />
+            <GridActionsCellItem
+              icon={<ShoppingCartIcon />}
+              label="Sell"
+              onClick={(e: MouseEvent) => {
+                e.stopPropagation();
+                handleSell(product);
+              }}
+              showInMenu={false}
+            />
         );
 
         // Adjust Stock action (available to all - audited)
@@ -462,11 +640,25 @@ export function ProductsTable({
             <GridActionsCellItem
               icon={<InventoryIcon />}
               label="Adjust Stock"
-              onClick={(e) => {
+              onClick={(e: MouseEvent) => {
                 e.stopPropagation();
                 handleAdjustStock(product);
               }}
-              showInMenu={false}
+              showInMenu={showMenuActionsOnly}
+            />
+          );
+        }
+
+        if (canResetStock && onResetStock) {
+          actions.push(
+            <GridActionsCellItem
+              icon={<RestartAltIcon />}
+              label="Reset Stock"
+              onClick={(e) => {
+                e.stopPropagation();
+                onResetStock(product);
+              }}
+              showInMenu={showMenuActionsOnly}
             />
           );
         }
@@ -476,11 +668,11 @@ export function ProductsTable({
           <GridActionsCellItem
             icon={<LocalShippingIcon />}
             label="Add Arrivage"
-            onClick={(e) => {
+            onClick={(e: MouseEvent) => {
               e.stopPropagation();
               handleAddArrivage(product);
             }}
-            showInMenu={false}
+            showInMenu={showMenuActionsOnly}
           />
         );
 
@@ -490,11 +682,11 @@ export function ProductsTable({
             <GridActionsCellItem
               icon={<EditIcon />}
               label="Edit"
-              onClick={(e) => {
+              onClick={(e: MouseEvent) => {
                 e.stopPropagation();
                 handleEdit(product);
               }}
-              showInMenu={false}
+              showInMenu={showMenuActionsOnly}
             />
           );
         }
@@ -505,11 +697,11 @@ export function ProductsTable({
             <GridActionsCellItem
               icon={<DeleteIcon />}
               label="Delete"
-              onClick={(e) => {
+              onClick={(e: MouseEvent) => {
                 e.stopPropagation();
                 handleDelete(product);
               }}
-              showInMenu
+              showInMenu={showMenuActionsOnly}
             />
           );
         }
@@ -521,11 +713,21 @@ export function ProductsTable({
 
   // Custom toolbar without search/filter
   const CustomToolbar = () => (
-    <GridToolbar>
+    <GridToolbarContainer>
       <GridToolbarColumnsButton />
       <GridToolbarDensitySelector />
       <GridToolbarExport />
-    </GridToolbar>
+      {selectedRows.length > 0 && (
+        <Button
+          size="small"
+          startIcon={<LocalShippingIcon />}
+          onClick={handleBulkAssignOpen}
+          sx={{ ml: 1 }}
+        >
+          Assign Arrivage
+        </Button>
+      )}
+    </GridToolbarContainer>
   );
 
   return (
@@ -533,28 +735,37 @@ export function ProductsTable({
       <DataGrid
         rows={tableProducts}
         columns={columns}
-        disableRowSelectionOnClick={false}
+        checkboxSelection
+        disableRowSelectionOnClick
         onRowClick={(params) => {
           const product = products.find(p => p.id === params.id);
           if (product && onRowClick) {
             onRowClick(product);
           }
         }}
-        rowSelectionModel={selectedProductId ? [selectedProductId] : []}
+        rowSelectionModel={selectedRows}
+        onRowSelectionModelChange={setSelectedRows}
         slots={{
           toolbar: CustomToolbar,
         }}
+        columnVisibilityModel={columnVisibilityModel}
         initialState={{
           pagination: {
             paginationModel: { pageSize: 25 },
           },
         }}
         pageSizeOptions={[10, 25, 50, 100]}
+        density={isSmDown ? 'compact' : 'standard'}
+        rowHeight={isSmDown ? 48 : 56}
+        columnHeaderHeight={isSmDown ? 44 : 52}
         sx={{
           border: 'none',
+          backgroundColor: 'transparent',
           '& .MuiDataGrid-cell': {
             borderBottom: '1px solid',
             borderColor: 'divider',
+            px: 0,
+            backgroundColor: 'transparent',
             '&:focus': {
               outline: 'none',
             },
@@ -562,9 +773,17 @@ export function ProductsTable({
               outline: 'none',
             },
           },
+          '& .MuiDataGrid-row--striped': {
+            backgroundColor: theme.palette.mode === 'dark'
+              ? 'rgba(255, 255, 255, 0.03)'
+              : 'rgba(0, 0, 0, 0.02)',
+          },
           '& .MuiDataGrid-row': {
+            transition: 'background-color 0.2s ease',
             '&:hover': {
-              backgroundColor: 'action.hover',
+              backgroundColor: theme.palette.mode === 'dark'
+                ? 'rgba(255, 255, 255, 0.06)'
+                : 'rgba(17, 24, 39, 0.04)',
               cursor: 'pointer',
             },
             '&.Mui-selected': {
@@ -575,29 +794,51 @@ export function ProductsTable({
             },
             // Add subtle left border accent for low/out stock rows
             '&.MuiDataGrid-row--stock-low': {
-              borderLeft: '3px solid',
-              borderColor: 'warning.main',
+              boxShadow: `inset 3px 0 0 ${theme.palette.warning.main}`,
             },
             '&.MuiDataGrid-row--stock-out': {
-              borderLeft: '3px solid',
-              borderColor: 'error.main',
+              boxShadow: `inset 3px 0 0 ${theme.palette.error.main}`,
             },
           },
           '& .MuiDataGrid-columnHeaders': {
-            backgroundColor: 'background.default',
+            backgroundColor: theme.palette.mode === 'dark'
+              ? 'rgba(15, 23, 42, 0.6)'
+              : 'rgba(255, 255, 255, 0.7)',
             borderBottom: '1px solid',
             borderColor: 'divider',
+            fontWeight: 600,
+            fontSize: { xs: '0.75rem', sm: '0.8125rem' },
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+          },
+          '& .MuiDataGrid-columnHeaderTitle': {
             fontWeight: 600,
           },
           '& .MuiDataGrid-toolbarContainer': {
             padding: '12px 16px',
-            backgroundColor: 'background.default',
+            backgroundColor: theme.palette.mode === 'dark'
+              ? 'rgba(15, 23, 42, 0.6)'
+              : 'rgba(255, 255, 255, 0.7)',
             borderBottom: '1px solid',
             borderColor: 'divider',
+            gap: 1,
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
           },
           '& .MuiDataGrid-footerContainer': {
             borderTop: '1px solid',
             borderColor: 'divider',
+          },
+          '& .MuiDataGrid-virtualScroller': {
+            overflowX: 'auto',
+            overscrollBehaviorX: 'contain',
+          },
+          '& .MuiDataGrid-virtualScrollerContent': {
+            minWidth: '100%',
+            width: 'max-content',
+          },
+          '& .MuiDataGrid-virtualScrollerRenderZone': {
+            minWidth: '100%',
           },
           // Style for pinned column
           '& .MuiDataGrid-columnHeader--pinnedLeft': {
@@ -608,11 +849,13 @@ export function ProductsTable({
           },
         }}
         getRowClassName={(params) => {
+          const classNames: string[] = [];
           const stock = params.row.currentStock;
           const reorderLevel = params.row.reorderLevel;
-          if (stock === 0) return 'MuiDataGrid-row--stock-out';
-          if (stock <= reorderLevel) return 'MuiDataGrid-row--stock-low';
-          return '';
+          if (stock === 0) classNames.push('MuiDataGrid-row--stock-out');
+          if (stock > 0 && stock <= reorderLevel) classNames.push('MuiDataGrid-row--stock-low');
+          if (params.indexRelativeToCurrentPage % 2 === 0) classNames.push('MuiDataGrid-row--striped');
+          return classNames.join(' ');
         }}
       />
 
@@ -686,6 +929,70 @@ export function ProductsTable({
         currentStock={productToAdjust?.currentStock || 0}
         onSuccess={handleStockAdjustmentSuccess}
       />
+
+      <Dialog
+        open={assignDialogOpen}
+        onClose={() => {
+          if (assignLoading) return;
+          setAssignDialogOpen(false);
+          setAssignTargets([]);
+          setSelectedArrivage(null);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Assign to Arrivage</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              {assignTargets.length} product{assignTargets.length === 1 ? '' : 's'} selected
+            </Typography>
+            <Autocomplete
+              options={arrivageOptions}
+              value={selectedArrivage}
+              onChange={(_, value) => setSelectedArrivage(value)}
+              getOptionLabel={(option) => {
+                const sourceLabel = PURCHASE_SOURCE_LABELS[option.source] || option.source;
+                return `${option.reference} • ${sourceLabel} • ${option.status}`;
+              }}
+              renderInput={(params) => (
+                <TextField {...params} label="Arrivage" placeholder="Select arrivage" />
+              )}
+            />
+            {selectedArrivage && (
+              <Box sx={{ p: 1.5, borderRadius: 1, bgcolor: 'background.default' }}>
+                <Typography variant="body2">
+                  Exchange rate: {selectedArrivage.exchangeRate?.toFixed(2)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Purchase: {selectedArrivage.purchaseDate ? new Date(selectedArrivage.purchaseDate).toLocaleDateString() : '-'}
+                  {' • '}
+                  Received: {selectedArrivage.receivedDate ? new Date(selectedArrivage.receivedDate).toLocaleDateString() : '-'}
+                </Typography>
+              </Box>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              if (assignLoading) return;
+              setAssignDialogOpen(false);
+              setAssignTargets([]);
+              setSelectedArrivage(null);
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleAssignConfirm}
+            disabled={!selectedArrivage || assignLoading}
+          >
+            {assignLoading ? 'Assigning…' : 'Assign'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

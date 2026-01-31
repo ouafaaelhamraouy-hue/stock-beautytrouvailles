@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
+import { recalcArrivageTotals } from '@/lib/arrivageTotals';
 
 export async function GET(
   request: Request,
@@ -26,13 +27,18 @@ export async function GET(
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'ARRIVAGES_READ')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const arrivage = await prisma.arrivage.findUnique({
-      where: { id },
+    await recalcArrivageTotals(id, userProfile.organizationId);
+
+    const arrivage = await prisma.arrivage.findFirst({
+      where: { id, organizationId: userProfile.organizationId },
       include: {
         products: {
           include: {
@@ -49,6 +55,13 @@ export async function GET(
     }
 
     // Format response
+    const toNumber = (value: unknown) =>
+      typeof value === 'number'
+        ? value
+        : typeof (value as { toNumber?: () => number })?.toNumber === 'function'
+          ? (value as { toNumber: () => number }).toNumber()
+          : Number(value) || 0;
+
     const shipment = {
       id: arrivage.id,
       reference: arrivage.reference,
@@ -58,11 +71,11 @@ export async function GET(
       status: arrivage.status,
       source: arrivage.source,
       invoices: arrivage.invoices,
-      exchangeRate: arrivage.exchangeRate,
-      totalCostEur: arrivage.totalCostEur,
-      shippingCostEur: arrivage.shippingCostEur,
-      packagingCostEur: arrivage.packagingCostEur,
-      totalCostDh: arrivage.totalCostDh,
+      exchangeRate: toNumber(arrivage.exchangeRate),
+      totalCostEur: toNumber(arrivage.totalCostEur),
+      shippingCostEur: toNumber(arrivage.shippingCostEur),
+      packagingCostEur: toNumber(arrivage.packagingCostEur),
+      totalCostDh: toNumber(arrivage.totalCostDh),
       productCount: arrivage.productCount,
       totalUnits: arrivage.totalUnits,
       carrier: arrivage.carrier,
@@ -107,14 +120,17 @@ export async function PUT(
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'ARRIVAGES_UPDATE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     const body = await request.json();
-    const existingArrivage = await prisma.arrivage.findUnique({
-      where: { id },
+    const existingArrivage = await prisma.arrivage.findFirst({
+      where: { id, organizationId: userProfile.organizationId },
       include: { products: true },
     });
 
@@ -123,6 +139,10 @@ export async function PUT(
     }
 
     // Update arrivage
+    const nextExchangeRate = body.exchangeRate !== undefined
+      ? body.exchangeRate
+      : existingArrivage.exchangeRate;
+
     const arrivage = await prisma.arrivage.update({
       where: { id },
       data: {
@@ -139,21 +159,15 @@ export async function PUT(
         status: body.status || existingArrivage.status,
         source: body.source || existingArrivage.source,
         invoices: body.invoices || existingArrivage.invoices,
-        exchangeRate: body.exchangeRate !== undefined 
-          ? body.exchangeRate 
-          : existingArrivage.exchangeRate,
+        exchangeRate: nextExchangeRate,
         shippingCostEur: body.shippingCostEur !== undefined 
           ? body.shippingCostEur 
           : existingArrivage.shippingCostEur,
         packagingCostEur: body.packagingCostEur !== undefined 
           ? body.packagingCostEur 
           : existingArrivage.packagingCostEur,
-        totalCostEur: body.totalCostEur !== undefined 
-          ? body.totalCostEur 
-          : existingArrivage.totalCostEur,
-        totalCostDh: body.totalCostDh !== undefined 
-          ? body.totalCostDh 
-          : existingArrivage.totalCostDh,
+        totalCostEur: existingArrivage.totalCostEur,
+        totalCostDh: existingArrivage.totalCostDh,
         carrier: body.carrier !== undefined ? body.carrier : existingArrivage.carrier,
         trackingNumber: body.trackingNumber !== undefined 
           ? body.trackingNumber 
@@ -170,6 +184,8 @@ export async function PUT(
         expenses: true,
       },
     });
+
+    await recalcArrivageTotals(id, userProfile.organizationId);
 
     // Format response
     const shipment = {
@@ -230,13 +246,16 @@ export async function DELETE(
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'ARRIVAGES_DELETE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const arrivage = await prisma.arrivage.findUnique({
-      where: { id },
+    const arrivage = await prisma.arrivage.findFirst({
+      where: { id, organizationId: userProfile.organizationId },
     });
 
     if (!arrivage) {

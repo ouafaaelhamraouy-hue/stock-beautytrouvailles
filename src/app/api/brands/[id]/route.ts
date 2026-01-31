@@ -19,8 +19,19 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const brand = await prisma.brand.findUnique({
-      where: { id },
+    const userProfile = await prisma.user.findUnique({
+      where: { id: user.id },
+    });
+
+    if (!userProfile || !userProfile.isActive) {
+      return NextResponse.json({ error: 'User not active' }, { status: 403 });
+    }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
+
+    const brand = await prisma.brand.findFirst({
+      where: { id, organizationId: userProfile.organizationId },
       include: {
         products: {
           select: {
@@ -68,6 +79,9 @@ export async function PUT(
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'PRODUCTS_UPDATE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -81,6 +95,7 @@ export async function PUT(
       where: {
         name,
         id: { not: id },
+        organizationId: userProfile.organizationId,
       },
     });
 
@@ -133,14 +148,17 @@ export async function DELETE(
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'PRODUCTS_DELETE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // Check if brand has products
-    const brandWithProducts = await prisma.brand.findUnique({
-      where: { id },
+    const brandWithProducts = await prisma.brand.findFirst({
+      where: { id, organizationId: userProfile.organizationId },
       include: {
         products: {
           take: 1,

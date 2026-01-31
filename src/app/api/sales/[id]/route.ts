@@ -42,6 +42,15 @@ export async function GET(
             category: true,
           },
         },
+        items: {
+          include: {
+            product: {
+              include: {
+                category: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -49,7 +58,25 @@ export async function GET(
       return NextResponse.json({ error: 'Sale not found' }, { status: 404 });
     }
 
-    return NextResponse.json(sale);
+    const toNumber = (value: unknown) =>
+      typeof value === 'number'
+        ? value
+        : typeof (value as { toNumber?: () => number })?.toNumber === 'function'
+          ? (value as { toNumber: () => number }).toNumber()
+          : Number(value) || 0;
+
+    const normalized = {
+      ...sale,
+      pricePerUnit: sale.pricePerUnit !== null ? toNumber(sale.pricePerUnit) : null,
+      totalAmount: toNumber(sale.totalAmount),
+      bundlePriceTotal: sale.bundlePriceTotal !== null ? toNumber(sale.bundlePriceTotal) : null,
+      items: sale.items?.map((item) => ({
+        ...item,
+        pricePerUnit: toNumber(item.pricePerUnit),
+      })),
+    };
+
+    return NextResponse.json(normalized);
   } catch (error) {
     console.error('Error fetching sale:', error);
     return NextResponse.json(
@@ -91,6 +118,15 @@ export async function PUT(
     const updateSchema = z.object({
       quantity: z.number().int().min(1).optional(),
       pricePerUnit: z.number().min(0).optional(),
+      pricingMode: z.enum(['REGULAR', 'PROMO', 'CUSTOM', 'BUNDLE']).optional(),
+      bundlePriceTotal: z.number().min(0).optional(),
+      items: z.array(
+        z.object({
+          productId: z.string().min(1),
+          quantity: z.number().int().min(1),
+          pricePerUnit: z.number().min(0),
+        })
+      ).optional(),
       isPromo: z.boolean().optional(),
       saleDate: z.string().datetime().optional(),
       notes: z.string().max(500).optional().nullable(),
@@ -102,12 +138,22 @@ export async function PUT(
         { status: 400 }
       );
     }
-    const { quantity, pricePerUnit, isPromo, saleDate, notes } = parsed.data;
+    const {
+      quantity,
+      pricePerUnit,
+      pricingMode,
+      bundlePriceTotal,
+      items,
+      isPromo,
+      saleDate,
+      notes,
+    } = parsed.data;
 
     const existingSale = await prisma.sale.findUnique({
       where: { id },
       include: {
         product: true,
+        items: true,
       },
     });
 
@@ -115,22 +161,172 @@ export async function PUT(
       return NextResponse.json({ error: 'Sale not found' }, { status: 404 });
     }
 
-    // If quantity changes, we need to adjust stock
-    const quantityDiff = quantity !== undefined ? quantity - existingSale.quantity : 0;
+    const finalPricingMode = pricingMode !== undefined ? pricingMode : existingSale.pricingMode;
+    const finalNotes = notes !== undefined ? notes : existingSale.notes;
 
+    const aggregateItems = (bundleItems: NonNullable<typeof items>) => {
+      const map = new Map<string, { productId: string; quantity: number; pricePerUnit: number }>();
+      for (const item of bundleItems) {
+        const existing = map.get(item.productId);
+        if (existing) {
+          existing.quantity += item.quantity;
+          existing.pricePerUnit = item.pricePerUnit;
+        } else {
+          map.set(item.productId, { ...item });
+        }
+      }
+      return Array.from(map.values());
+    };
+
+    if (finalPricingMode === 'BUNDLE' || existingSale.pricingMode === 'BUNDLE') {
+      if (!items || items.length < 2) {
+        return NextResponse.json(
+          { error: 'Bundle items are required for bundle sales' },
+          { status: 400 }
+        );
+      }
+
+      const bundleItems = aggregateItems(items);
+      const productIds = bundleItems.map((i) => i.productId);
+      const products = await prisma.product.findMany({
+        where: { id: { in: productIds } },
+      });
+      if (products.length !== productIds.length) {
+        return NextResponse.json({ error: 'One or more products not found' }, { status: 404 });
+      }
+
+      const previousByProduct = new Map<string, number>();
+      for (const item of existingSale.items) {
+        previousByProduct.set(item.productId, (previousByProduct.get(item.productId) || 0) + item.quantity);
+      }
+
+      const newByProduct = new Map<string, number>();
+      for (const item of bundleItems) {
+        newByProduct.set(item.productId, (newByProduct.get(item.productId) || 0) + item.quantity);
+      }
+
+      for (const item of bundleItems) {
+        const product = products.find((p) => p.id === item.productId);
+        if (!product) continue;
+        const purchasePriceMad = product.purchasePriceMad ? Number(product.purchasePriceMad) : 0;
+        if (purchasePriceMad > 0 && item.pricePerUnit < purchasePriceMad) {
+          if (!finalNotes || finalNotes.trim().length === 0) {
+            return NextResponse.json(
+              { error: 'Notes are required when selling below cost price' },
+              { status: 400 }
+            );
+          }
+        }
+      }
+
+      for (const [productId, newQty] of newByProduct.entries()) {
+        const prevQty = previousByProduct.get(productId) || 0;
+        const diff = newQty - prevQty;
+        if (diff > 0) {
+          const product = products.find((p) => p.id === productId);
+          if (!product) continue;
+          const availableStock = product.quantityReceived - product.quantitySold;
+          if (diff > availableStock) {
+            return NextResponse.json(
+              { error: `Insufficient stock for ${product.name}. Available: ${availableStock}, Additional needed: ${diff}` },
+              { status: 409 }
+            );
+          }
+        }
+      }
+
+      const totalAmount = bundleItems.reduce(
+        (sum, item) => sum + item.quantity * item.pricePerUnit,
+        0
+      );
+
+      if (typeof bundlePriceTotal === 'number' && Math.abs(bundlePriceTotal - totalAmount) > 0.01) {
+        return NextResponse.json(
+          { error: 'Bundle total mismatch. Expected: ' + totalAmount + ', Got: ' + bundlePriceTotal },
+          { status: 400 }
+        );
+      }
+
+      const result = await prisma.$transaction(async (tx) => {
+        // Update stock per product diff
+        for (const [productId, newQty] of newByProduct.entries()) {
+          const prevQty = previousByProduct.get(productId) || 0;
+          const diff = newQty - prevQty;
+          if (diff === 0) continue;
+
+          await tx.product.update({
+            where: { id: productId },
+            data: { quantitySold: { increment: diff } },
+          });
+
+          const product = await tx.product.findUnique({ where: { id: productId } });
+          if (product) {
+            await tx.stockMovement.create({
+              data: {
+                productId,
+                type: diff > 0 ? 'SALE' : 'RETURN',
+                quantity: -diff,
+                previousQty: product.quantityReceived - (product.quantitySold - diff),
+                newQty: product.quantityReceived - product.quantitySold,
+                reference: `Sale ${id} (bundle updated)`,
+                userId: user.id,
+              },
+            });
+          }
+        }
+
+        await tx.saleItem.deleteMany({ where: { saleId: id } });
+
+        const sale = await tx.sale.update({
+          where: { id },
+          data: {
+            productId: null,
+            quantity: null,
+            pricePerUnit: null,
+            totalAmount,
+            pricingMode: 'BUNDLE',
+            bundlePriceTotal: totalAmount,
+            isPromo: true,
+            saleDate: saleDate ? new Date(saleDate) : existingSale.saleDate,
+            notes: finalNotes,
+            items: {
+              create: bundleItems.map((item) => ({
+                productId: item.productId,
+                quantity: item.quantity,
+                pricePerUnit: item.pricePerUnit,
+              })),
+            },
+          },
+          include: {
+            items: {
+              include: {
+                product: {
+                  include: { category: true },
+                },
+              },
+            },
+          },
+        });
+
+        return sale;
+      });
+
+      return NextResponse.json(result);
+    }
+
+    if (!existingSale.productId) {
+      return NextResponse.json({ error: 'Product not found for this sale' }, { status: 404 });
+    }
+
+    const quantityDiff = quantity !== undefined ? quantity - (existingSale.quantity || 0) : 0;
     if (quantityDiff !== 0) {
       const product = await prisma.product.findUnique({
         where: { id: existingSale.productId },
       });
-
       if (!product) {
         return NextResponse.json({ error: 'Product not found' }, { status: 404 });
       }
-
-      // Calculate available stock
       const availableStock = product.quantityReceived - product.quantitySold;
-
-      // If increasing quantity, check if enough stock is available
       if (quantityDiff > 0 && quantityDiff > availableStock) {
         return NextResponse.json(
           { error: `Insufficient stock. Available: ${availableStock}, Additional needed: ${quantityDiff}` },
@@ -139,15 +335,17 @@ export async function PUT(
       }
     }
 
-    // Calculate new total amount
     const finalQuantity = quantity !== undefined ? quantity : existingSale.quantity;
-    const finalPricePerUnit = pricePerUnit !== undefined ? pricePerUnit : existingSale.pricePerUnit;
-    const finalNotes = notes !== undefined ? notes : existingSale.notes;
-    const purchasePriceMad = existingSale.product.purchasePriceMad
+    const finalPricePerUnit =
+      pricePerUnit !== undefined ? pricePerUnit : existingSale.pricePerUnit;
+
+    if (typeof finalQuantity !== 'number' || typeof finalPricePerUnit !== 'number') {
+      return NextResponse.json({ error: 'Quantity and price are required' }, { status: 400 });
+    }
+
+    const purchasePriceMad = existingSale.product?.purchasePriceMad
       ? Number(existingSale.product.purchasePriceMad)
       : 0;
-
-    // Rule: notes required when selling below cost
     if (purchasePriceMad > 0 && finalPricePerUnit < purchasePriceMad) {
       if (!finalNotes || finalNotes.trim().length === 0) {
         return NextResponse.json(
@@ -157,11 +355,11 @@ export async function PUT(
       }
     }
 
-    // Validate against saleSchema for consistency
     const validationResult = saleSchema.safeParse({
       productId: existingSale.productId,
       quantity: finalQuantity,
       pricePerUnit: finalPricePerUnit,
+      pricingMode: finalPricingMode,
       isPromo: isPromo !== undefined ? isPromo : existingSale.isPromo,
       saleDate: saleDate ? new Date(saleDate) : existingSale.saleDate,
       notes: finalNotes,
@@ -172,30 +370,28 @@ export async function PUT(
         { status: 400 }
       );
     }
+
     const totalAmount = calculateSaleTotal(finalQuantity, finalPricePerUnit);
 
-    // Use transaction to ensure atomicity
     const result = await prisma.$transaction(async (tx) => {
-      // Update product quantitySold if quantity changed
       if (quantityDiff !== 0) {
         await tx.product.update({
-          where: { id: existingSale.productId },
+          where: { id: existingSale.productId as string },
           data: {
             quantitySold: { increment: quantityDiff },
           },
         });
 
-        // Create StockMovement entry
         const product = await tx.product.findUnique({
-          where: { id: existingSale.productId },
+          where: { id: existingSale.productId as string },
         });
 
         if (product) {
           await tx.stockMovement.create({
             data: {
-              productId: existingSale.productId,
+              productId: existingSale.productId as string,
               type: 'SALE',
-              quantity: -quantityDiff, // Negative for outbound
+              quantity: -quantityDiff,
               previousQty: product.quantityReceived - (product.quantitySold - quantityDiff),
               newQty: product.quantityReceived - product.quantitySold,
               reference: `Sale ${id} (updated)`,
@@ -205,14 +401,20 @@ export async function PUT(
         }
       }
 
-      // Update sale
       const sale = await tx.sale.update({
         where: { id },
         data: {
+          productId: existingSale.productId,
           quantity: finalQuantity,
           pricePerUnit: finalPricePerUnit,
           totalAmount,
-          isPromo: isPromo !== undefined ? isPromo : existingSale.isPromo,
+          pricingMode: finalPricingMode,
+          bundlePriceTotal: null,
+          isPromo: isPromo !== undefined
+            ? isPromo
+            : finalPricingMode === 'PROMO'
+              ? true
+              : existingSale.isPromo,
           saleDate: saleDate ? new Date(saleDate) : existingSale.saleDate,
           notes: finalNotes,
         },
@@ -220,6 +422,13 @@ export async function PUT(
           product: {
             include: {
               category: true,
+            },
+          },
+          items: {
+            include: {
+              product: {
+                include: { category: true },
+              },
             },
           },
         },
@@ -273,6 +482,7 @@ export async function DELETE(
       where: { id },
       include: {
         product: true,
+        items: true,
       },
     });
 
@@ -282,34 +492,58 @@ export async function DELETE(
 
     // Use transaction to restore stock and delete sale
     await prisma.$transaction(async (tx) => {
-      // Restore stock: decrement quantitySold
-      await tx.product.update({
-        where: { id: sale.productId },
-        data: {
-          quantitySold: { decrement: sale.quantity },
-        },
-      });
+      if (sale.pricingMode === 'BUNDLE' && sale.items.length > 0) {
+        for (const item of sale.items) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { quantitySold: { decrement: item.quantity } },
+          });
 
-      // Create StockMovement entry for restoration
-      const product = await tx.product.findUnique({
-        where: { id: sale.productId },
-      });
+          const product = await tx.product.findUnique({
+            where: { id: item.productId },
+          });
 
-      if (product) {
-        await tx.stockMovement.create({
+          if (product) {
+            await tx.stockMovement.create({
+              data: {
+                productId: item.productId,
+                type: 'RETURN',
+                quantity: item.quantity,
+                previousQty: product.quantityReceived - (product.quantitySold + item.quantity),
+                newQty: product.quantityReceived - product.quantitySold,
+                reference: `Sale ${id} (deleted)`,
+                userId: user.id,
+              },
+            });
+          }
+        }
+      } else if (sale.productId && sale.quantity) {
+        await tx.product.update({
+          where: { id: sale.productId },
           data: {
-            productId: sale.productId,
-            type: 'RETURN', // Sale deletion is treated as return
-            quantity: sale.quantity, // Positive for inbound
-            previousQty: product.quantityReceived - (product.quantitySold + sale.quantity),
-            newQty: product.quantityReceived - product.quantitySold,
-            reference: `Sale ${id} (deleted)`,
-            userId: user.id,
+            quantitySold: { decrement: sale.quantity },
           },
         });
+
+        const product = await tx.product.findUnique({
+          where: { id: sale.productId },
+        });
+
+        if (product) {
+          await tx.stockMovement.create({
+            data: {
+              productId: sale.productId,
+              type: 'RETURN',
+              quantity: sale.quantity,
+              previousQty: product.quantityReceived - (product.quantitySold + sale.quantity),
+              newQty: product.quantityReceived - product.quantitySold,
+              reference: `Sale ${id} (deleted)`,
+              userId: user.id,
+            },
+          });
+        }
       }
 
-      // Delete sale
       await tx.sale.delete({
         where: { id },
       });

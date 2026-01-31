@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   Dialog,
@@ -29,10 +29,10 @@ import { calculateSaleTotal } from '@/lib/calculations';
 
 interface Product {
   id: string;
-  sku: string;
   name: string;
-  basePriceEUR: number;
-  basePriceDH: number;
+  sellingPriceDh: number;
+  promoPriceDh: number | null;
+  purchasePriceMad: number;
   availableStock: number;
   category: {
     name: string;
@@ -48,6 +48,9 @@ interface SaleFormProps {
     productId: string;
     quantity: number;
     pricePerUnit: number;
+    pricingMode: 'REGULAR' | 'PROMO' | 'CUSTOM' | 'BUNDLE';
+    bundleQty?: number | null;
+    bundlePriceTotal?: number | null;
     isPromo: boolean;
     saleDate: string;
   };
@@ -75,19 +78,22 @@ export function SaleForm({
     reset,
     watch,
     setValue,
-  } = useForm<SaleFormData & { saleDate?: Date }>({
+    control,
+  } = useForm<SaleFormData>({
     resolver: zodResolver(saleSchema),
-    defaultValues: initialData || {
-      productId: '',
-      quantity: 1,
-      pricePerUnit: 0,
-      isPromo: false,
-      saleDate: new Date(),
+    defaultValues: {
+      productId: initialData?.productId ?? '',
+      quantity: initialData?.quantity ?? 1,
+      pricePerUnit: initialData?.pricePerUnit ?? 0,
+      pricingMode: initialData?.pricingMode ?? 'REGULAR',
+      bundlePriceTotal: initialData?.bundlePriceTotal ?? undefined,
+      isPromo: initialData?.isPromo ?? false,
+      saleDate: initialData?.saleDate ? new Date(initialData.saleDate) : new Date(),
     },
   });
 
-  const quantity = watch('quantity');
-  const pricePerUnit = watch('pricePerUnit');
+  const quantity = watch('quantity') ?? 0;
+  const pricePerUnit = watch('pricePerUnit') ?? 0;
   const selectedProduct = products.find((p) => p.id === selectedProductId);
 
   // Calculate total amount
@@ -96,7 +102,7 @@ export function SaleForm({
   // Suggest base price when product is selected
   useEffect(() => {
     if (selectedProduct && !initialData && pricePerUnit === 0) {
-      setValue('pricePerUnit', selectedProduct.basePriceEUR, { shouldValidate: true });
+      setValue('pricePerUnit', selectedProduct.sellingPriceDh, { shouldValidate: true });
     }
   }, [selectedProduct, initialData, pricePerUnit, setValue]);
 
@@ -106,6 +112,8 @@ export function SaleForm({
         productId: initialData.productId,
         quantity: initialData.quantity,
         pricePerUnit: initialData.pricePerUnit,
+        pricingMode: initialData.pricingMode,
+        bundlePriceTotal: initialData.bundlePriceTotal ?? undefined,
         isPromo: initialData.isPromo,
         saleDate: new Date(initialData.saleDate),
       });
@@ -116,6 +124,7 @@ export function SaleForm({
         productId: '',
         quantity: 1,
         pricePerUnit: 0,
+        pricingMode: 'REGULAR',
         isPromo: false,
         saleDate: new Date(),
       });
@@ -132,8 +141,9 @@ export function SaleForm({
     }
   }, [selectedProduct, quantity, setValue]);
 
-  const handleFormSubmit = async (data: SaleFormData) => {
-    if (selectedProduct && data.quantity > selectedProduct.availableStock) {
+  const handleFormSubmit: SubmitHandler<SaleFormData> = async (data) => {
+    const submittedQuantity = data.quantity ?? 0;
+    if (selectedProduct && submittedQuantity > selectedProduct.availableStock) {
       toast.error(tSales('insufficientStock'));
       return;
     }
@@ -141,7 +151,7 @@ export function SaleForm({
     try {
       const submitData = {
         ...data,
-        saleDate: saleDate?.toISOString() || new Date().toISOString(),
+        saleDate: saleDate ?? new Date(),
       };
       await onSubmit(submitData);
       reset();
@@ -180,7 +190,7 @@ export function SaleForm({
                   >
                     {products.map((product) => (
                       <MenuItem key={product.id} value={product.id}>
-                        {product.sku} - {product.name} ({product.category.name}) -{' '}
+                        {product.name} ({product.category.name}) -{' '}
                         <Chip
                           label={`${tSales('availableStock')}: ${product.availableStock}`}
                           size="small"
@@ -239,9 +249,31 @@ export function SaleForm({
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
+                  <Controller
+                    name="pricingMode"
+                    control={control}
+                    render={({ field }) => (
+                      <TextField
+                        {...field}
+                        value={field.value ?? 'REGULAR'}
+                        label="Pricing Mode"
+                        fullWidth
+                        required
+                        select
+                        error={!!errors.pricingMode}
+                        helperText={errors.pricingMode?.message}
+                      >
+                        <MenuItem value="REGULAR">Regular</MenuItem>
+                        <MenuItem value="PROMO">Promo</MenuItem>
+                        <MenuItem value="CUSTOM">Custom</MenuItem>
+                      </TextField>
+                    )}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
                   <TextField
                     {...register('pricePerUnit', { valueAsNumber: true })}
-                    label={tSales('pricePerUnit') + ' (EUR)'}
+                    label={tSales('pricePerUnit') + ' (MAD)'}
                     fullWidth
                     required
                     type="number"
@@ -250,7 +282,7 @@ export function SaleForm({
                     helperText={
                       errors.pricePerUnit?.message ||
                       (selectedProduct
-                        ? `Base price: ${selectedProduct.basePriceEUR.toFixed(2)} EUR`
+                        ? `Base price: ${selectedProduct.sellingPriceDh.toFixed(2)} MAD`
                         : '')
                     }
                   />
@@ -273,17 +305,17 @@ export function SaleForm({
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                         <span>{tSales('totalAmount')}:</span>
                         <strong>
-                          <CurrencyDisplay amount={totalAmount} currency="EUR" variant="h6" />
+                      <CurrencyDisplay amount={totalAmount} currency="DH" variant="h6" />
                         </strong>
                       </Box>
                       {selectedProduct && pricePerUnit > 0 && (
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
                           <Typography variant="body2">Margin:</Typography>
                           <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                            {selectedProduct.basePriceEUR > 0
+                            {selectedProduct.purchasePriceMad > 0
                               ? (
-                                  ((pricePerUnit - selectedProduct.basePriceEUR) /
-                                    selectedProduct.basePriceEUR) *
+                                  ((pricePerUnit - selectedProduct.purchasePriceMad) /
+                                    selectedProduct.purchasePriceMad) *
                                   100
                                 ).toFixed(1)
                               : '0'}{' '}

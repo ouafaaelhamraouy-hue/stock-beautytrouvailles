@@ -24,9 +24,13 @@ export async function GET() {
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     const recentSales = await prisma.sale.findMany({
       take: 10,
+      where: { organizationId: userProfile.organizationId },
       include: {
         product: {
           include: {

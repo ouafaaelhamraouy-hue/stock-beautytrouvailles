@@ -25,6 +25,9 @@ export async function GET() {
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     // Get sales from the last 6 months
     const sixMonthsAgo = new Date();
@@ -32,6 +35,7 @@ export async function GET() {
 
     const sales = await prisma.sale.findMany({
       where: {
+        organizationId: userProfile.organizationId,
         saleDate: {
           gte: sixMonthsAgo,
         },
@@ -57,7 +61,7 @@ export async function GET() {
           revenue: 0,
         };
       }
-      acc[monthKey].revenue += sale.totalAmount;
+      acc[monthKey].revenue += Number(sale.totalAmount);
       return acc;
     }, {} as Record<string, { month: string; revenue: number }>);
 

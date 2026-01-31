@@ -26,6 +26,9 @@ export async function GET() {
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
@@ -45,13 +48,16 @@ export async function GET() {
     ] = await Promise.all([
       // Total active products
       prisma.product.count({
-        where: { isActive: true },
+        where: { isActive: true, organizationId: userProfile.organizationId },
       }),
       // Total arrivages
-      prisma.arrivage.count(),
+      prisma.arrivage.count({
+        where: { organizationId: userProfile.organizationId },
+      }),
       // Sales this month
       prisma.sale.count({
         where: {
+          organizationId: userProfile.organizationId,
           saleDate: {
             gte: startOfMonth,
           },
@@ -59,16 +65,16 @@ export async function GET() {
       }),
       // Products for inventory value calculation
       prisma.product.findMany({
-        where: { isActive: true },
+        where: { isActive: true, organizationId: userProfile.organizationId },
         select: {
           quantityReceived: true,
           quantitySold: true,
-          sellingPriceDh: true,
+          purchasePriceMad: true,
         },
       }),
       // Products for margin calculation
       prisma.product.findMany({
-        where: { isActive: true },
+        where: { isActive: true, organizationId: userProfile.organizationId },
         select: {
           purchasePriceMad: true,
           sellingPriceDh: true,
@@ -86,6 +92,7 @@ export async function GET() {
       }),
       // Total revenue
       prisma.sale.aggregate({
+        where: { organizationId: userProfile.organizationId },
         _sum: {
           totalAmount: true,
         },
@@ -93,6 +100,7 @@ export async function GET() {
       // Recent sales (last 5)
       prisma.sale.findMany({
         take: 5,
+        where: { organizationId: userProfile.organizationId },
         include: {
           product: {
             include: {
@@ -108,6 +116,7 @@ export async function GET() {
       prisma.product.findMany({
         where: {
           isActive: true,
+          organizationId: userProfile.organizationId,
           quantitySold: {
             gt: 0,
           },
@@ -129,15 +138,16 @@ export async function GET() {
         take: 5,
       }),
       // Packaging cost setting
-      prisma.setting.findUnique({
-        where: { key: 'packagingCostTotal' },
+      prisma.setting.findFirst({
+        where: { key: 'packagingCostTotal', organizationId: userProfile.organizationId },
       }),
     ]);
 
-    // Calculate inventory value
+    // Calculate inventory value based on purchase price (cost)
     const inventoryValue = productsForInventory.reduce((sum, p) => {
       const stock = p.quantityReceived - p.quantitySold;
-      return sum + (stock > 0 ? Number(p.sellingPriceDh) * stock : 0);
+      const unitCost = p.purchasePriceMad ? Number(p.purchasePriceMad) : 0;
+      return sum + (stock > 0 ? unitCost * stock : 0);
     }, 0);
 
     // Calculate low stock count and list
@@ -183,19 +193,21 @@ export async function GET() {
     }));
 
     // Format recent sales
-    const recentSalesFormatted = recentSales.map((sale) => ({
-      id: sale.id,
-      saleDate: sale.saleDate,
-      product: {
-        id: sale.product.id,
-        name: sale.product.name,
-        category: {
-          name: sale.product.category.name,
+    const recentSalesFormatted = recentSales
+      .filter((sale) => sale.product)
+      .map((sale) => ({
+        id: sale.id,
+        saleDate: sale.saleDate,
+        product: {
+          id: sale.product!.id,
+          name: sale.product!.name,
+          category: {
+            name: sale.product!.category.name,
+          },
         },
-      },
-      quantity: sale.quantity,
-      totalAmount: sale.totalAmount,
-    }));
+        quantity: sale.quantity ?? 0,
+        totalAmount: sale.totalAmount,
+      }));
 
     return NextResponse.json({
       // Stats

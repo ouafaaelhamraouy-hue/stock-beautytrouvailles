@@ -17,17 +17,29 @@ import ShareIcon from '@mui/icons-material/Share';
 interface Sale {
   id: string;
   saleDate: string;
-  product: {
+  product?: {
     id: string;
-    sku: string;
     name: string;
     category: {
       name: string;
     };
-  };
-  quantity: number;
-  pricePerUnit: number;
+  } | null;
+  quantity?: number | null;
+  pricePerUnit?: number | null;
   totalAmount: number;
+  pricingMode?: 'REGULAR' | 'PROMO' | 'CUSTOM' | 'BUNDLE';
+  items?: Array<{
+    productId: string;
+    quantity: number;
+    pricePerUnit: number;
+    product: {
+      id: string;
+      name: string;
+      category: {
+        name: string;
+      };
+    };
+  }>;
   isPromo: boolean;
   createdAt: string;
 }
@@ -45,11 +57,12 @@ export function Receipt({ sale, onClose }: ReceiptProps) {
   };
 
   const handleShare = async () => {
+    const saleLabel = sale.product?.name || 'Bundle Sale';
     if (navigator.share) {
       try {
         await navigator.share({
-          title: `Receipt - ${sale.product.name}`,
-          text: `Receipt for ${sale.product.name}`,
+          title: `Receipt - ${saleLabel}`,
+          text: `Receipt for ${saleLabel}`,
           url: window.location.href,
         });
       } catch (error) {
@@ -120,22 +133,53 @@ export function Receipt({ sale, onClose }: ReceiptProps) {
           {tSales('items')}
         </Typography>
         <Box sx={{ bgcolor: 'grey.50', p: 2, borderRadius: 1 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-            <Box>
-              <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                {sale.product.name}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                SKU: {sale.product.sku} | {sale.product.category.name}
-              </Typography>
-            </Box>
-          </Box>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
-            <Typography variant="body2">
-              {sale.quantity} × <CurrencyDisplay amount={sale.pricePerUnit} currency="EUR" variant="body2" />
-            </Typography>
-            <CurrencyDisplay amount={sale.totalAmount} currency="EUR" variant="body1" />
-          </Box>
+          {sale.items && sale.items.length > 0 ? (
+            <>
+              {sale.items.map((item, index) => (
+                <Box key={`${item.productId}-${index}`} sx={{ mb: 1 }}>
+                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                    {item.product.name}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {item.product.category.name}
+                  </Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
+                    <Typography variant="body2">
+                      {item.quantity} ×{' '}
+                      <CurrencyDisplay amount={item.pricePerUnit} currency="DH" variant="body2" />
+                    </Typography>
+                    <CurrencyDisplay
+                      amount={item.quantity * item.pricePerUnit}
+                      currency="DH"
+                      variant="body1"
+                    />
+                  </Box>
+                </Box>
+              ))}
+            </>
+          ) : (
+            <>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                <Box>
+                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                    {sale.product?.name || 'Sale'}
+                  </Typography>
+                  {sale.product?.category && (
+                    <Typography variant="caption" color="text.secondary">
+                      {sale.product.category.name}
+                    </Typography>
+                  )}
+                </Box>
+              </Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
+                <Typography variant="body2">
+                  {sale.quantity || 0} ×{' '}
+                  <CurrencyDisplay amount={sale.pricePerUnit || 0} currency="DH" variant="body2" />
+                </Typography>
+                <CurrencyDisplay amount={sale.totalAmount} currency="DH" variant="body1" />
+              </Box>
+            </>
+          )}
           {sale.isPromo && (
             <Chip
               label="Promotional Sale"
@@ -156,7 +200,7 @@ export function Receipt({ sale, onClose }: ReceiptProps) {
             {tSales('total')}:
           </Typography>
           <Typography variant="h5" sx={{ fontWeight: 700, color: 'primary.main' }}>
-            <CurrencyDisplay amount={sale.totalAmount} currency="EUR" variant="h5" />
+            <CurrencyDisplay amount={sale.totalAmount} currency="DH" variant="h5" />
           </Typography>
         </Box>
       </Box>

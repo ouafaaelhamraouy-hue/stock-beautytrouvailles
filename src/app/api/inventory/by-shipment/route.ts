@@ -24,6 +24,9 @@ export async function GET(request: Request) {
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'PRODUCTS_READ')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -39,6 +42,7 @@ export async function GET(request: Request) {
     // Build where clause for products
     const productWhere: Prisma.ProductWhereInput = {
       isActive: true,
+      organizationId: userProfile.organizationId,
     };
 
     if (arrivageId) {
@@ -62,7 +66,9 @@ export async function GET(request: Request) {
 
     // Fetch arrivages with their products
     const arrivages = await prisma.arrivage.findMany({
-      where: arrivageId ? { id: arrivageId } : undefined,
+      where: arrivageId
+        ? { id: arrivageId, organizationId: userProfile.organizationId }
+        : { organizationId: userProfile.organizationId },
       select: {
         id: true,
         reference: true,

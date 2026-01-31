@@ -13,14 +13,14 @@ const DEFAULT_SETTINGS = {
   exchangeRateEurToMad: '10.85',
 };
 
-async function getOrCreateSetting(key: string, defaultValue: string) {
-  let setting = await prisma.setting.findUnique({
-    where: { key },
+async function getOrCreateSetting(key: string, defaultValue: string, organizationId: string) {
+  let setting = await prisma.setting.findFirst({
+    where: { key, organizationId },
   });
 
   if (!setting) {
     setting = await prisma.setting.create({
-      data: { key, value: defaultValue },
+      data: { key, value: defaultValue, organizationId },
     });
   }
 
@@ -46,6 +46,9 @@ export async function GET() {
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'SETTINGS_READ')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -53,7 +56,7 @@ export async function GET() {
 
     // Get all settings, create defaults if they don't exist
     const settingsPromises = Object.entries(DEFAULT_SETTINGS).map(([key, defaultValue]) =>
-      getOrCreateSetting(key, defaultValue)
+      getOrCreateSetting(key, defaultValue, userProfile.organizationId)
     );
 
     const settingsArray = await Promise.all(settingsPromises);
@@ -93,6 +96,9 @@ export async function PUT(request: Request) {
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     // Only SUPER_ADMIN can update settings
     if (!hasPermission(userProfile.role, 'SETTINGS_UPDATE')) {
@@ -114,19 +120,27 @@ export async function PUT(request: Request) {
     }
 
     // Update each setting
-    const updatePromises = Object.entries(updates).map(([key, value]) =>
-      prisma.setting.upsert({
-        where: { key },
-        update: { value: value.toString() },
-        create: { key, value: value.toString() },
-      })
-    );
+    const updatePromises = Object.entries(updates).map(async ([key, value]) => {
+      const existing = await prisma.setting.findFirst({
+        where: { key, organizationId: userProfile.organizationId },
+      });
+      if (existing) {
+        await prisma.setting.update({
+          where: { id: existing.id },
+          data: { value: value.toString() },
+        });
+      } else {
+        await prisma.setting.create({
+          data: { key, value: value.toString(), organizationId: userProfile.organizationId },
+        });
+      }
+    });
 
     await Promise.all(updatePromises);
 
     // Fetch updated settings
     const settingsArray = await prisma.setting.findMany({
-      where: { key: { in: validKeys } },
+      where: { key: { in: validKeys }, organizationId: userProfile.organizationId },
     });
 
     const settings = settingsArray.reduce((acc, setting) => {

@@ -5,18 +5,21 @@ import { CompactKPICard } from '@/components/dashboard/CompactKPICard';
 import { ChartContainer } from '@/components/dashboard/ChartContainer';
 import { ActionCenter } from '@/components/dashboard/ActionCenter';
 import { RecentActivity } from '@/components/dashboard/RecentActivity';
+import { RevenueProfitChart } from '@/components/dashboard/RevenueProfitChart';
+import { StockHealthChart } from '@/components/dashboard/StockHealthChart';
 import { useQuery } from '@tanstack/react-query';
 import InventoryIcon from '@mui/icons-material/Inventory';
-import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import CurrencyExchangeIcon from '@mui/icons-material/CurrencyExchange';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import WarningIcon from '@mui/icons-material/Warning';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
-import { formatCurrency } from '@/lib/format';
+import { formatNumber } from '@/lib/format';
 import { useLocale } from 'next-intl';
-import { Suspense } from 'react';
+import { Suspense, useState } from 'react';
 
 export default function DashboardPage() {
   const locale = useLocale() as 'en' | 'fr';
+  const [trendPeriod, setTrendPeriod] = useState<'7' | '30' | '90'>('30');
 
   // Fetch aggregated dashboard summary (single request)
   const { data: summaryData, isLoading } = useQuery({
@@ -77,9 +80,34 @@ export default function DashboardPage() {
         </Grid>
         <Grid item xs={12} sm={6} md={4} lg={2.4}>
           <CompactKPICard
-            label="Inventory Value"
-            value={formatCurrency(stats.inventoryValue || 0, 'DH', locale)}
-            icon={<AttachMoneyIcon />}
+            label="Inventory Cost"
+            value={
+              <Typography component="span" sx={{ display: 'inline-flex', alignItems: 'baseline', gap: 0.5 }}>
+                <Typography
+                  component="span"
+                  sx={{
+                    fontWeight: 700,
+                    fontSize: '1.75rem',
+                    letterSpacing: '-0.02em',
+                    lineHeight: 1.2,
+                    fontFeatureSettings: '"tnum"',
+                  }}
+                >
+                  {formatNumber(stats.inventoryValue || 0, locale)}
+                </Typography>
+                <Typography
+                  component="span"
+                  sx={{
+                    fontWeight: 600,
+                    fontSize: '0.9rem',
+                    color: 'text.secondary',
+                  }}
+                >
+                  MAD
+                </Typography>
+              </Typography>
+            }
+            icon={<CurrencyExchangeIcon />}
             color="#10B981"
           />
         </Grid>
@@ -117,86 +145,59 @@ export default function DashboardPage() {
         {/* Left Column - Charts */}
         <Grid item xs={12} lg={8}>
           <Grid container spacing={3}>
-            {/* Sales Trend Chart - Lazy loaded */}
+            {/* Revenue vs Profit Trend */}
             <Grid item xs={12}>
               <ChartContainer
-                title="Sales Trend"
+                title="Revenue vs Profit"
                 showTimeToggle={true}
                 onTimePeriodChange={(period) => {
-                  console.log('Sales period changed:', period);
-                  // TODO: Update chart data based on period
+                  setTrendPeriod(period);
                 }}
               >
-                <Suspense fallback={
-                  <Box
-                    sx={{
-                      width: '100%',
-                      height: 300,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: 'text.secondary',
-                    }}
-                  >
-                    <Typography variant="body2">Loading chart...</Typography>
-                  </Box>
-                }>
-                  <Box
-                    sx={{
-                      width: '100%',
-                      height: 300,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: 'text.secondary',
-                    }}
-                  >
-                    <Typography variant="body2">
-                      Chart placeholder - Sales trend visualization
-                    </Typography>
-                  </Box>
+                <Suspense
+                  fallback={
+                    <Box
+                      sx={{
+                        width: '100%',
+                        height: 300,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'text.secondary',
+                      }}
+                    >
+                      <Typography variant="body2">Loading chart...</Typography>
+                    </Box>
+                  }
+                >
+                  <RevenueProfitChart period={trendPeriod} locale={locale} />
                 </Suspense>
               </ChartContainer>
             </Grid>
 
-            {/* Stock Health Chart - Lazy loaded */}
+            {/* Stock Health Chart */}
             <Grid item xs={12}>
               <ChartContainer
                 title="Stock Health"
-                showTimeToggle={true}
-                onTimePeriodChange={(period) => {
-                  console.log('Stock period changed:', period);
-                  // TODO: Update chart data based on period
-                }}
+                showTimeToggle={false}
               >
-                <Suspense fallback={
-                  <Box
-                    sx={{
-                      width: '100%',
-                      height: 300,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: 'text.secondary',
-                    }}
-                  >
-                    <Typography variant="body2">Loading chart...</Typography>
-                  </Box>
-                }>
-                  <Box
-                    sx={{
-                      width: '100%',
-                      height: 300,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: 'text.secondary',
-                    }}
-                  >
-                    <Typography variant="body2">
-                      Chart placeholder - Stock health visualization
-                    </Typography>
-                  </Box>
+                <Suspense
+                  fallback={
+                    <Box
+                      sx={{
+                        width: '100%',
+                        height: 300,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'text.secondary',
+                      }}
+                    >
+                      <Typography variant="body2">Loading chart...</Typography>
+                    </Box>
+                  }
+                >
+                  <StockHealthChart />
                 </Suspense>
               </ChartContainer>
             </Grid>

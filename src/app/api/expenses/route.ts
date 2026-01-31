@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
-import { Prisma } from '@prisma/client';
+import { Prisma, ExpenseType } from '@prisma/client';
 import { hasPermission } from '@/lib/permissions';
+import { recalcArrivageTotals } from '@/lib/arrivageTotals';
 
 export async function GET(request: Request) {
   try {
@@ -23,6 +24,9 @@ export async function GET(request: Request) {
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'EXPENSES_READ')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -41,12 +45,19 @@ export async function GET(request: Request) {
     const sort = allowedSorts.has(sortParam) ? sortParam : 'date';
 
     // Build where clause
-    const where: Prisma.ExpenseWhereInput = {};
+    const where: Prisma.ExpenseWhereInput = { organizationId: userProfile.organizationId };
     if (arrivageId) {
       where.arrivageId = arrivageId;
     }
     if (type) {
-      where.type = type;
+      const isValidType = Object.values(ExpenseType).includes(type as ExpenseType);
+      if (!isValidType) {
+        return NextResponse.json(
+          { error: 'Invalid expense type' },
+          { status: 400 }
+        );
+      }
+      where.type = type as ExpenseType;
     }
     if (startDate || endDate) {
       where.date = {};
@@ -72,6 +83,8 @@ export async function GET(request: Request) {
     // Format response to match expected structure (with shipment for backward compatibility)
     const formattedExpenses = expenses.map((expense) => ({
       ...expense,
+      amountEUR: Number(expense.amountEUR),
+      amountDH: Number(expense.amountDH),
       shipmentId: expense.arrivageId,
       shipment: expense.arrivage ? {
         id: expense.arrivage.id,
@@ -111,6 +124,9 @@ export async function POST(request: Request) {
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'EXPENSES_CREATE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -128,7 +144,7 @@ export async function POST(request: Request) {
         where: { id: finalArrivageId },
       });
 
-      if (!arrivage) {
+      if (!arrivage || arrivage.organizationId !== userProfile.organizationId) {
         return NextResponse.json({ error: 'Arrivage not found' }, { status: 404 });
       }
     }
@@ -138,18 +154,24 @@ export async function POST(request: Request) {
         date: date ? new Date(date) : new Date(),
         amountEUR,
         amountDH,
-        description,
+        description: description || '',
         type,
         arrivageId: finalArrivageId || null,
+        organizationId: userProfile.organizationId,
       },
       include: {
         arrivage: true,
       },
     });
+    if (finalArrivageId) {
+      await recalcArrivageTotals(finalArrivageId, userProfile.organizationId);
+    }
 
     // Format response
     const formattedExpense = {
       ...expense,
+      amountEUR: Number(expense.amountEUR),
+      amountDH: Number(expense.amountDH),
       shipmentId: expense.arrivageId,
       shipment: expense.arrivage ? {
         id: expense.arrivage.id,

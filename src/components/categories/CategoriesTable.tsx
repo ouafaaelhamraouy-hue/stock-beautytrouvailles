@@ -12,12 +12,13 @@ import { Box, Button } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { CategoryForm } from './CategoryForm';
-import { ConfirmDialog } from '@/components/ui';
+import { BulkActionBar, ConfirmDialog, TableHeader } from '@/components/ui';
 import { useUserProfile } from '@/hooks/useUserProfile';
-import { hasPermission } from '@/lib/permissions';
+import { hasPermission, isAdmin as isAdminRole } from '@/lib/permissions';
 import type { CategoryFormData } from '@/lib/validations';
 
 interface Category {
@@ -39,10 +40,11 @@ export function CategoriesTable({ categories, onRefresh }: CategoriesTableProps)
   const [selectedRows, setSelectedRows] = useState<GridRowSelectionModel>([]);
   const [formOpen, setFormOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [categoryToEdit, setCategoryToEdit] = useState<Category | null>(null);
   const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
 
-  const isAdmin = profile?.role === 'ADMIN';
+  const isAdmin = profile ? isAdminRole(profile.role) : false;
 
   const handleCreate = () => {
     setCategoryToEdit(null);
@@ -102,6 +104,50 @@ export function CategoriesTable({ categories, onRefresh }: CategoriesTableProps)
     onRefresh();
   };
 
+  const handleBulkExport = async () => {
+    if (selectedRows.length === 0) return;
+    const XLSX = await import('xlsx');
+    const selected = categories.filter((category) => selectedRows.includes(category.id));
+    const excelData = selected.map((category) => ({
+      Name: category.name,
+      Description: category.description || '',
+      Created: new Date(category.createdAt).toLocaleDateString(),
+    }));
+    const ws = XLSX.utils.json_to_sheet(excelData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Categories');
+    XLSX.writeFile(wb, `categories-${new Date().toISOString().split('T')[0]}.xlsx`);
+    toast.success('Selected categories exported');
+  };
+
+  const handleBulkDeleteConfirm = async () => {
+    if (selectedRows.length === 0) return;
+
+    const ids = selectedRows.map((id) => String(id));
+    const results = await Promise.allSettled(
+      ids.map(async (id) => {
+        const response = await fetch(`/api/categories/${id}`, { method: 'DELETE' });
+        if (!response.ok) {
+          throw new Error('Failed to delete category');
+        }
+      })
+    );
+
+    const failed = results.filter((result) => result.status === 'rejected').length;
+    const succeeded = results.length - failed;
+
+    if (succeeded > 0) {
+      toast.success(`Deleted ${succeeded} categor${succeeded === 1 ? 'y' : 'ies'}`);
+    }
+    if (failed > 0) {
+      toast.error(`Failed to delete ${failed} categor${failed === 1 ? 'y' : 'ies'}`);
+    }
+
+    setBulkDeleteDialogOpen(false);
+    setSelectedRows([]);
+    onRefresh();
+  };
+
   const columns: GridColDef[] = [
     { field: 'name', headerName: 'Name', width: 200, flex: 1 },
     { field: 'description', headerName: 'Description', width: 300, flex: 2 },
@@ -109,7 +155,7 @@ export function CategoriesTable({ categories, onRefresh }: CategoriesTableProps)
       field: 'actions',
       type: 'actions',
       headerName: 'Actions',
-      width: 100,
+      width: 70,
       getActions: (params) => {
         const actions = [];
         if (isAdmin && hasPermission(profile?.role || 'STAFF', 'PRODUCTS_UPDATE')) {
@@ -118,6 +164,7 @@ export function CategoriesTable({ categories, onRefresh }: CategoriesTableProps)
               icon={<EditIcon />}
               label="Edit"
               onClick={() => handleEdit(params.row)}
+              showInMenu
             />
           );
         }
@@ -139,23 +186,55 @@ export function CategoriesTable({ categories, onRefresh }: CategoriesTableProps)
   return (
     <Box sx={{ height: '100%', width: '100%' }}>
       {categories.length > 0 && (
-        <Box sx={{ p: 2, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid rgba(0, 0, 0, 0.12)' }}>
-          {isAdmin && hasPermission(profile?.role || 'STAFF', 'PRODUCTS_CREATE') && (
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={handleCreate}
-              sx={{
-                boxShadow: '0 2px 8px rgba(25, 118, 210, 0.3)',
-                '&:hover': {
-                  boxShadow: '0 4px 12px rgba(25, 118, 210, 0.4)',
-                },
-              }}
-            >
-              {t('create')} Category
-            </Button>
-          )}
-        </Box>
+        <TableHeader
+          left={
+            isAdmin && hasPermission(profile?.role || 'STAFF', 'PRODUCTS_CREATE') ? (
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={handleCreate}
+                sx={{
+                  boxShadow: '0 2px 8px rgba(25, 118, 210, 0.3)',
+                  '&:hover': {
+                    boxShadow: '0 4px 12px rgba(25, 118, 210, 0.4)',
+                  },
+                }}
+              >
+                {t('create')} Category
+              </Button>
+            ) : null
+          }
+          totalCount={categories.length}
+          selectedCount={selectedRows.length}
+        />
+      )}
+
+      {selectedRows.length > 0 && (
+        <BulkActionBar
+          count={selectedRows.length}
+          onClear={() => setSelectedRows([])}
+          actions={
+            <>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<FileDownloadIcon />}
+                onClick={handleBulkExport}
+              >
+                Export
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<DeleteIcon />}
+                onClick={() => setBulkDeleteDialogOpen(true)}
+                disabled={!hasPermission(profile?.role || 'STAFF', 'PRODUCTS_DELETE')}
+              >
+                Delete selected
+              </Button>
+            </>
+          }
+        />
       )}
 
       {categories.length === 0 ? (
@@ -173,50 +252,62 @@ export function CategoriesTable({ categories, onRefresh }: CategoriesTableProps)
           )}
         </Box>
       ) : (
-        <DataGrid
-          rows={categories}
-          columns={columns}
-          checkboxSelection={isAdmin}
-          rowSelectionModel={selectedRows}
-          onRowSelectionModelChange={setSelectedRows}
-          disableRowSelectionOnClick
-          slots={{
-            toolbar: GridToolbar,
-          }}
+      <DataGrid
+        rows={categories}
+        columns={columns}
+        checkboxSelection={isAdmin}
+        rowSelectionModel={selectedRows}
+        onRowSelectionModelChange={setSelectedRows}
+        disableRowSelectionOnClick
+        getRowClassName={(params) =>
+          params.indexRelativeToCurrentPage % 2 === 0 ? 'MuiDataGrid-row--striped' : ''
+        }
+        slots={{
+          toolbar: GridToolbar,
+        }}
           initialState={{
             pagination: {
               paginationModel: { pageSize: 25 },
             },
           }}
           pageSizeOptions={[10, 25, 50, 100]}
-          sx={{
+          sx={(theme) => ({
             border: 'none',
             '& .MuiDataGrid-cell': {
-              borderBottom: '1px solid rgba(224, 224, 224, 0.5)',
+              borderBottom: '1px solid',
+              borderColor: 'divider',
               '&:focus': {
                 outline: 'none',
               },
             },
+            '& .MuiDataGrid-row--striped': {
+              backgroundColor: theme.palette.mode === 'dark'
+                ? 'rgba(255, 255, 255, 0.03)'
+                : 'rgba(0, 0, 0, 0.02)',
+            },
             '& .MuiDataGrid-row': {
               '&:hover': {
-                backgroundColor: 'rgba(25, 118, 210, 0.04)',
+                backgroundColor: 'action.hover',
               },
             },
             '& .MuiDataGrid-columnHeaders': {
-              backgroundColor: 'rgba(0, 0, 0, 0.02)',
-              borderBottom: '2px solid rgba(0, 0, 0, 0.12)',
+              backgroundColor: 'background.default',
+              borderBottom: '1px solid',
+              borderColor: 'divider',
               fontWeight: 600,
+              fontSize: { xs: '0.75rem', sm: '0.8125rem' },
             },
             '& .MuiDataGrid-toolbarContainer': {
               padding: '12px 16px',
-              backgroundColor: 'rgba(0, 0, 0, 0.02)',
-              borderBottom: '1px solid rgba(0, 0, 0, 0.12)',
+              backgroundColor: 'background.default',
+              borderBottom: '1px solid',
+              borderColor: 'divider',
             },
             '& .MuiDataGrid-footerContainer': {
-              borderTop: '1px solid rgba(0, 0, 0, 0.12)',
-              backgroundColor: 'rgba(0, 0, 0, 0.02)',
+              borderTop: '1px solid',
+              borderColor: 'divider',
             },
-          }}
+          })}
         />
       )}
 
@@ -239,6 +330,16 @@ export function CategoriesTable({ categories, onRefresh }: CategoriesTableProps)
         onConfirm={handleDeleteConfirm}
         title="Delete Category"
         message={`Are you sure you want to delete "${categoryToDelete?.name}"? This action cannot be undone.`}
+        confirmColor="error"
+        confirmLabel="Delete"
+      />
+
+      <ConfirmDialog
+        open={bulkDeleteDialogOpen}
+        onClose={() => setBulkDeleteDialogOpen(false)}
+        onConfirm={handleBulkDeleteConfirm}
+        title="Delete Categories"
+        message={`Are you sure you want to delete ${selectedRows.length} categor${selectedRows.length === 1 ? 'y' : 'ies'}? This action cannot be undone.`}
         confirmColor="error"
         confirmLabel="Delete"
       />

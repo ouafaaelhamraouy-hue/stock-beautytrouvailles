@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from '@/i18n/routing';
 import { useUserProfile } from '@/hooks/useUserProfile';
+import { useAuth } from '@/contexts/AuthContext';
 import { canAccessAdminPages } from '@/lib/permissions';
 import { Box, Typography, CircularProgress } from '@mui/material';
 
@@ -19,14 +20,24 @@ export function RouteGuard({
   requireSuperAdmin = false,
   fallbackPath = '/dashboard',
 }: RouteGuardProps) {
+  const { user, loading: authLoading } = useAuth();
   const { profile, loading: isLoading } = useUserProfile();
   const router = useRouter();
 
   useEffect(() => {
-    if (isLoading) return;
+    if (authLoading || isLoading) return;
+
+    if (!user) {
+      router.push('/login');
+      return;
+    }
 
     if (!profile) {
-      router.push('/login');
+      return;
+    }
+
+    if (!profile.isActive) {
+      router.push('/pending');
       return;
     }
 
@@ -39,9 +50,9 @@ export function RouteGuard({
       router.push(fallbackPath);
       return;
     }
-  }, [profile, isLoading, requireAdmin, requireSuperAdmin, router, fallbackPath]);
+  }, [user, authLoading, profile, isLoading, requireAdmin, requireSuperAdmin, router, fallbackPath]);
 
-  if (isLoading) {
+  if (authLoading || isLoading) {
     return (
       <Box
         sx={{
@@ -61,7 +72,15 @@ export function RouteGuard({
     );
   }
 
+  if (!user) {
+    return null; // Will redirect
+  }
+
   if (!profile) {
+    return null; // Will wait for profile
+  }
+
+  if (!profile.isActive) {
     return null; // Will redirect
   }
 

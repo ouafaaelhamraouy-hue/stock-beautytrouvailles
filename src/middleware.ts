@@ -12,7 +12,7 @@ export async function middleware(request: NextRequest) {
   const locale = pathname.split('/')[1] || 'en';
   
   // Public routes that don't require authentication
-  const publicRoutes = ['/login'];
+  const publicRoutes = ['/login', '/register', '/pending'];
   const isPublicRoute = publicRoutes.some((route) =>
     pathname.includes(route)
   );

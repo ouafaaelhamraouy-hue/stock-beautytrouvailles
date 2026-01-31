@@ -7,8 +7,6 @@ generator client {
 
 datasource db {
   provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
 }
 
 // Users table - profile/role table keyed by Supabase auth.users.id
@@ -18,11 +16,14 @@ model User {
   fullName  String?
   role      UserRole @default(STAFF)
   isActive  Boolean  @default(true)
+  organizationId String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  organization  Organization @relation(fields: [organizationId], references: [id])
   stockMovements StockMovement[]
 
+  @@index([organizationId])
   @@map("users")
 }
 
@@ -32,33 +33,63 @@ enum UserRole {
   STAFF
 }
 
+model Organization {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users          User[]
+  categories     Category[]
+  brands         Brand[]
+  products       Product[]
+  arrivages      Arrivage[]
+  sales          Sale[]
+  saleItems      SaleItem[]
+  expenses       Expense[]
+  stockMovements StockMovement[]
+  settings       Setting[]
+
+  @@map("organizations")
+}
+
 // Categories
 model Category {
   id          String    @id @default(cuid())
-  name        String    @unique
+  name        String
   nameFr      String?
   description String?
   targetMargin Int      @default(45)  // Target margin %
   minMargin   Int       @default(30)  // Minimum acceptable margin %
   color       String?   @default("#ECEFF1")  // Category color for UI
+  organizationId String
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
+  organization Organization @relation(fields: [organizationId], references: [id])
   products Product[]
 
+  @@index([organizationId])
+  @@unique([organizationId, name])
   @@map("categories")
 }
 
 // Brands
 model Brand {
   id        String    @id @default(cuid())
-  name      String    @unique
+  name      String
   logoUrl   String?
   country   String?   @default("France")
+  organizationId String
   products  Product[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@unique([organizationId, name])
   @@map("brands")
 }
 
@@ -71,6 +102,7 @@ model Product {
   brandId           String?   // Brand relation
   purchaseSource    PurchaseSource @default(OTHER)
   imageUrl          String?
+  organizationId    String
   
   // Pricing - EUR (original from receipt)
   purchasePriceEur  Decimal?  @db.Decimal(10, 2)  // Prix Achat in EUR (original)
@@ -91,17 +123,20 @@ model Product {
   brand             Brand?    @relation(fields: [brandId], references: [id])
   stockMovements    StockMovement[]
   sales             Sale[]
+  saleItems         SaleItem[]
   
   // Meta
   isActive          Boolean   @default(true)
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
+  organization Organization @relation(fields: [organizationId], references: [id])
   category      Category        @relation(fields: [categoryId], references: [id])
 
   @@index([categoryId])
   @@index([arrivageId])
   @@index([brandId])
+  @@index([organizationId])
   @@index([isActive])
   @@index([purchaseSource])
   @@index([name])
@@ -124,7 +159,8 @@ enum PurchaseSource {
 // Reference format: "COMMANDE 1111" (date-based)
 model Arrivage {
   id              String    @id @default(cuid())
-  reference       String    @unique  // COMMANDE 1111, COMMANDE 1312, etc.
+  reference       String    // COMMANDE 1111, COMMANDE 1312, etc.
+  organizationId  String
   
   // Dates
   purchaseDate    DateTime?  // DATE D'ACHAT
@@ -167,10 +203,14 @@ model Arrivage {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
+  organization Organization @relation(fields: [organizationId], references: [id])
+
   @@map("arrivages")
   @@index([status])
   @@index([reference])
+  @@unique([organizationId, reference])
   @@index([source])
+  @@index([organizationId])
 }
 
 enum ArrivageStatus {
@@ -188,6 +228,7 @@ model StockMovement {
   
   product       Product   @relation(fields: [productId], references: [id])
   productId     String
+  organizationId String
   
   type          MovementType
   quantity      Int       // Positive for in, negative for out
@@ -202,9 +243,12 @@ model StockMovement {
   
   createdAt     DateTime  @default(now())
   
+  organization Organization @relation(fields: [organizationId], references: [id])
+
   @@index([productId])
   @@index([createdAt])
   @@index([type])
+  @@index([organizationId])
   @@map("stock_movements")
 }
 
@@ -220,20 +264,52 @@ enum MovementType {
 model Sale {
   id          String    @id @default(cuid())
   saleDate    DateTime  @default(now())
-  productId   String
-  quantity    Int
-  pricePerUnit Decimal  @db.Decimal(10, 2)
+  productId   String?
+  quantity    Int?
+  pricePerUnit Decimal?  @db.Decimal(10, 2)
   totalAmount Decimal  @db.Decimal(10, 2) // Must equal quantity * pricePerUnit
+  pricingMode SalePricingMode @default(REGULAR)
+  bundleQty   Int?
+  bundlePriceTotal Decimal? @db.Decimal(10, 2)
   isPromo     Boolean   @default(false)
   notes       String?   // Optional notes for the sale
+  organizationId String
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  product Product @relation(fields: [productId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  product Product? @relation(fields: [productId], references: [id])
+  items   SaleItem[]
 
   @@map("sales")
   @@index([saleDate])
   @@index([productId])
+  @@index([organizationId])
+}
+
+model SaleItem {
+  id          String   @id @default(cuid())
+  saleId      String
+  productId   String
+  quantity    Int
+  pricePerUnit Decimal @db.Decimal(10, 2)
+  organizationId String
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  sale    Sale    @relation(fields: [saleId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@map("sale_items")
+  @@index([saleId])
+  @@index([productId])
+  @@index([organizationId])
+}
+
+enum SalePricingMode {
+  REGULAR
+  PROMO
+  CUSTOM
+  BUNDLE
 }
 
 // Expenses - Keep for tracking operational costs
@@ -245,13 +321,16 @@ model Expense {
   description String
   type        ExpenseType
   arrivageId  String?
+  organizationId String
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
+  organization Organization @relation(fields: [organizationId], references: [id])
   arrivage Arrivage? @relation(fields: [arrivageId], references: [id])
 
   @@map("expenses")
   @@index([date])
+  @@index([organizationId])
 }
 
 enum ExpenseType {
@@ -267,10 +346,14 @@ enum ExpenseType {
 // Settings
 model Setting {
   id        String   @id @default(cuid())
-  key       String   @unique
+  key       String
   value     String
+  organizationId String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, key])
   @@map("settings")
 }

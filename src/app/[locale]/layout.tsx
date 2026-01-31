@@ -5,6 +5,7 @@ import { ToasterProvider } from '@/components/providers/ToasterProvider';
 import { QueryProvider } from '@/components/providers/QueryProvider';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { routing } from '@/i18n/routing';
+import { cookies } from 'next/headers';
 
 export function generateStaticParams() {
   return routing.locales.map((locale) => ({ locale }));
@@ -19,11 +20,24 @@ export default async function LocaleLayout({
 }) {
   const { locale } = await params;
   const messages = await getMessages({ locale });
+  const cookieStore = await cookies();
+  const themeCookie = cookieStore.get('theme-mode')?.value;
+  const resolvedCookie = cookieStore.get('theme-resolved')?.value;
+  const initialMode =
+    themeCookie === 'light' || themeCookie === 'dark' || themeCookie === 'system'
+      ? themeCookie
+      : undefined;
+  const initialResolvedMode =
+    resolvedCookie === 'light' || resolvedCookie === 'dark' ? resolvedCookie : undefined;
 
   return (
     <NextIntlClientProvider messages={messages} locale={locale}>
       <QueryProvider>
-        <ThemeProvider locale={locale as 'fr' | 'en'}>
+        <ThemeProvider
+          locale={locale as 'fr' | 'en'}
+          initialMode={initialMode}
+          initialResolvedMode={initialResolvedMode}
+        >
           <AuthProvider>
             <ToasterProvider />
             {children}

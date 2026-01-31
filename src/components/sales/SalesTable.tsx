@@ -8,46 +8,76 @@ import {
   GridRowSelectionModel,
   GridToolbar,
 } from '@mui/x-data-grid';
-import { Box, Button, Chip, Typography } from '@mui/material';
+import {
+  Box,
+  Button,
+  Chip,
+  Menu,
+  MenuItem,
+  Typography,
+  IconButton,
+  Tooltip,
+  useMediaQuery,
+  useTheme,
+} from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import ReceiptIcon from '@mui/icons-material/Receipt';
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import LabelIcon from '@mui/icons-material/Label';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { useRouter } from '@/i18n/routing';
 import { SaleForm } from './SaleForm';
-import { ConfirmDialog } from '@/components/ui';
+import { BundleSaleForm } from './BundleSaleForm';
+import { BulkActionBar, ConfirmDialog, TableHeader } from '@/components/ui';
 import { CurrencyDisplay } from '@/components/ui';
 import { useUserProfile } from '@/hooks/useUserProfile';
-import { hasPermission } from '@/lib/permissions';
+import { hasPermission, isAdmin as isAdminRole } from '@/lib/permissions';
 import type { SaleFormData } from '@/lib/validations';
 
 interface Sale {
   id: string;
   saleDate: string;
-  product: {
+  product?: {
     id: string;
-    sku: string;
     name: string;
     category: {
       name: string;
     };
-  };
-  quantity: number;
-  pricePerUnit: number;
+  } | null;
+  quantity?: number | null;
+  pricePerUnit?: number | null;
   totalAmount: number;
+  pricingMode: 'REGULAR' | 'PROMO' | 'CUSTOM' | 'BUNDLE';
+  bundleQty?: number | null;
+  bundlePriceTotal?: number | null;
+  items?: Array<{
+    productId: string;
+    quantity: number;
+    pricePerUnit: number;
+    product: {
+      id: string;
+      name: string;
+      category: {
+        name: string;
+      };
+    };
+  }>;
   isPromo: boolean;
+  notes?: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
 interface Product {
   id: string;
-  sku: string;
   name: string;
-  basePriceEUR: number;
-  basePriceDH: number;
+  sellingPriceDh: number;
+  promoPriceDh: number | null;
+  purchasePriceMad: number;
   availableStock: number;
   category: {
     name: string;
@@ -64,15 +94,21 @@ export function SalesTable({ sales, products, onRefresh }: SalesTableProps) {
   const t = useTranslations('common');
   const tNav = useTranslations('nav');
   const tSales = useTranslations('sales');
+  const theme = useTheme();
+  const isSmDown = useMediaQuery(theme.breakpoints.down('sm'));
   const { profile } = useUserProfile();
   const router = useRouter();
   const [selectedRows, setSelectedRows] = useState<GridRowSelectionModel>([]);
   const [formOpen, setFormOpen] = useState(false);
+  const [bundleFormOpen, setBundleFormOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const [markMenuAnchor, setMarkMenuAnchor] = useState<null | HTMLElement>(null);
   const [saleToEdit, setSaleToEdit] = useState<Sale | null>(null);
+  const [bundleToEdit, setBundleToEdit] = useState<Sale | null>(null);
   const [saleToDelete, setSaleToDelete] = useState<Sale | null>(null);
 
-  const isAdmin = profile?.role === 'ADMIN';
+  const isAdmin = profile ? isAdminRole(profile.role) : false;
 
   const handleCreate = () => {
     setSaleToEdit(null);
@@ -80,8 +116,18 @@ export function SalesTable({ sales, products, onRefresh }: SalesTableProps) {
   };
 
   const handleEdit = (sale: Sale) => {
+    if (sale.pricingMode === 'BUNDLE') {
+      setBundleToEdit(sale);
+      setBundleFormOpen(true);
+      return;
+    }
     setSaleToEdit(sale);
     setFormOpen(true);
+  };
+
+  const handleCreateBundle = () => {
+    setBundleToEdit(null);
+    setBundleFormOpen(true);
   };
 
   const handleViewReceipt = (sale: Sale) => {
@@ -136,26 +182,132 @@ export function SalesTable({ sales, products, onRefresh }: SalesTableProps) {
     onRefresh();
   };
 
+  const handleBundleSubmit = async (data: SaleFormData) => {
+    const url = bundleToEdit ? `/api/sales/${bundleToEdit.id}` : '/api/sales';
+    const method = bundleToEdit ? 'PUT' : 'POST';
+
+    const response = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to save bundle sale');
+    }
+
+    toast.success(bundleToEdit ? 'Bundle sale updated successfully' : 'Bundle sale created successfully');
+    setBundleFormOpen(false);
+    setBundleToEdit(null);
+    onRefresh();
+  };
+
+  const handleBulkExport = async () => {
+    if (selectedRows.length === 0) return;
+    const XLSX = await import('xlsx');
+    const selected = sales.filter((sale) => selectedRows.includes(sale.id));
+    const excelData = selected.map((sale) => {
+      const quantity = sale.pricingMode === 'BUNDLE'
+        ? (sale.items || []).reduce((sum, item) => sum + item.quantity, 0)
+        : sale.quantity ?? 0;
+      const productLabel = sale.pricingMode === 'BUNDLE'
+        ? `Bundle (${(sale.items || []).length} items)`
+        : sale.product?.name || 'Sale';
+      return {
+        Date: sale.saleDate ? new Date(sale.saleDate).toLocaleDateString() : '-',
+        Product: productLabel,
+        Quantity: quantity,
+        Pricing: sale.pricingMode,
+        Total: sale.totalAmount,
+        Promo: sale.isPromo ? 'Yes' : 'No',
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(excelData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Sales');
+    XLSX.writeFile(wb, `sales-${new Date().toISOString().split('T')[0]}.xlsx`);
+    toast.success('Selected sales exported');
+  };
+
+  const handleBulkMarkPromo = async (isPromo: boolean) => {
+    if (selectedRows.length === 0) return;
+    const ids = selectedRows.map((id) => String(id));
+    const results = await Promise.allSettled(
+      ids.map(async (id) => {
+        const response = await fetch(`/api/sales/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isPromo }),
+        });
+        if (!response.ok) {
+          throw new Error('Failed to update sale');
+        }
+      })
+    );
+    const failed = results.filter((result) => result.status === 'rejected').length;
+    const succeeded = results.length - failed;
+    if (succeeded > 0) {
+      toast.success(`Updated ${succeeded} sale${succeeded === 1 ? '' : 's'}`);
+    }
+    if (failed > 0) {
+      toast.error(`Failed to update ${failed} sale${failed === 1 ? '' : 's'}`);
+    }
+    setMarkMenuAnchor(null);
+    onRefresh();
+  };
+
+  const handleBulkDeleteConfirm = async () => {
+    if (selectedRows.length === 0) return;
+    const ids = selectedRows.map((id) => String(id));
+    const results = await Promise.allSettled(
+      ids.map(async (id) => {
+        const response = await fetch(`/api/sales/${id}`, { method: 'DELETE' });
+        if (!response.ok) {
+          throw new Error('Failed to delete sale');
+        }
+      })
+    );
+    const failed = results.filter((result) => result.status === 'rejected').length;
+    const succeeded = results.length - failed;
+    if (succeeded > 0) {
+      toast.success(`Deleted ${succeeded} sale${succeeded === 1 ? '' : 's'}`);
+    }
+    if (failed > 0) {
+      toast.error(`Failed to delete ${failed} sale${failed === 1 ? '' : 's'}`);
+    }
+    setBulkDeleteDialogOpen(false);
+    setSelectedRows([]);
+    onRefresh();
+  };
+
   const columns: GridColDef[] = [
     {
       field: 'saleDate',
       headerName: tSales('saleDate'),
-      width: 150,
+      width: isSmDown ? 120 : 150,
       valueGetter: (value) => value ? new Date(value).toLocaleDateString() : '-',
     },
     {
       field: 'product',
       headerName: tSales('product'),
-      width: 250,
+      width: isSmDown ? 200 : 250,
       flex: 1,
-      valueGetter: (value, row) => `${row.product.sku} - ${row.product.name}`,
+      valueGetter: (value, row) => row.pricingMode === 'BUNDLE'
+        ? 'Bundle'
+        : row.product?.name || 'Sale',
       renderCell: (params) => (
         <Box>
           <Typography variant="body2" sx={{ fontWeight: 500 }}>
-            {params.row.product.sku} - {params.row.product.name}
+            {params.row.pricingMode === 'BUNDLE'
+              ? `Bundle (${(params.row.items || []).length} items)`
+              : params.row.product?.name || 'Sale'}
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            {params.row.product.category.name}
+            {params.row.pricingMode === 'BUNDLE'
+              ? (params.row.items || []).map((item: { product: { name: string } }) => item.product.name).slice(0, 2).join(', ') +
+                ((params.row.items || []).length > 2 ? '…' : '')
+              : params.row.product?.category.name}
           </Typography>
         </Box>
       ),
@@ -163,28 +315,69 @@ export function SalesTable({ sales, products, onRefresh }: SalesTableProps) {
     {
       field: 'quantity',
       headerName: tSales('quantity'),
-      width: 100,
+      width: isSmDown ? 80 : 100,
+      align: 'right',
+      headerAlign: 'right',
+      valueGetter: (value, row) => {
+        if (row.pricingMode === 'BUNDLE') {
+          return (row.items || []).reduce((sum: number, item: { quantity: number }) => sum + item.quantity, 0);
+        }
+        return value ?? 0;
+      },
     },
     {
       field: 'pricePerUnit',
       headerName: tSales('pricePerUnit'),
-      width: 130,
-      renderCell: (params) => (
-        <CurrencyDisplay amount={params.value} currency="EUR" variant="body2" />
-      ),
+      width: isSmDown ? 110 : 130,
+      align: 'right',
+      headerAlign: 'right',
+      renderCell: (params) =>
+        params.row.pricingMode === 'BUNDLE'
+          ? <Typography variant="body2" color="text.secondary">Mixed</Typography>
+          : <CurrencyDisplay amount={params.value || 0} currency="DH" variant="body2" />,
+    },
+    {
+      field: 'pricingMode',
+      headerName: 'Pricing',
+      width: isSmDown ? 130 : 160,
+      renderCell: (params) => {
+        const mode = params.value as Sale['pricingMode'];
+        if (mode === 'BUNDLE') {
+          const totalItems = (params.row.items || []).reduce((sum: number, item: { quantity: number }) => sum + item.quantity, 0);
+          const total = params.row.bundlePriceTotal || params.row.totalAmount || 0;
+          return (
+            <Chip
+              label={`Bundle ${totalItems} items • ${total} MAD`}
+              size="small"
+              color="info"
+              variant="outlined"
+            />
+          );
+        }
+        return (
+          <Chip
+            label={mode}
+            size="small"
+            color={mode === 'PROMO' ? 'success' : mode === 'CUSTOM' ? 'warning' : 'default'}
+            variant="outlined"
+          />
+        );
+      },
     },
     {
       field: 'totalAmount',
       headerName: tSales('totalAmount'),
-      width: 130,
+      width: isSmDown ? 120 : 130,
+      align: 'right',
+      headerAlign: 'right',
       renderCell: (params) => (
-        <CurrencyDisplay amount={params.value} currency="EUR" variant="body2" />
+        <CurrencyDisplay amount={params.value} currency="DH" variant="body2" />
       ),
     },
     {
       field: 'isPromo',
       headerName: 'Promo',
-      width: 100,
+      width: isSmDown ? 90 : 100,
       renderCell: (params) => (
         params.value ? (
           <Chip label="Yes" color="success" size="small" />
@@ -197,7 +390,7 @@ export function SalesTable({ sales, products, onRefresh }: SalesTableProps) {
       field: 'actions',
       type: 'actions',
       headerName: 'Actions',
-      width: 150,
+      width: isSmDown ? 60 : 70,
       getActions: (params) => {
         const actions = [];
         actions.push(
@@ -205,6 +398,7 @@ export function SalesTable({ sales, products, onRefresh }: SalesTableProps) {
             icon={<ReceiptIcon />}
             label="Receipt"
             onClick={() => handleViewReceipt(params.row)}
+            showInMenu
           />
         );
         if (isAdmin && hasPermission(profile?.role || 'STAFF', 'SALES_UPDATE')) {
@@ -213,6 +407,7 @@ export function SalesTable({ sales, products, onRefresh }: SalesTableProps) {
               icon={<EditIcon />}
               label="Edit"
               onClick={() => handleEdit(params.row)}
+              showInMenu
             />
           );
         }
@@ -234,23 +429,93 @@ export function SalesTable({ sales, products, onRefresh }: SalesTableProps) {
   return (
     <Box sx={{ height: '100%', width: '100%' }}>
       {sales.length > 0 && (
-        <Box sx={{ p: 2, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid rgba(0, 0, 0, 0.12)' }}>
-          {hasPermission(profile?.role || 'STAFF', 'SALES_CREATE') && (
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={handleCreate}
-              sx={{
-                boxShadow: '0 2px 8px rgba(25, 118, 210, 0.3)',
-                '&:hover': {
-                  boxShadow: '0 4px 12px rgba(25, 118, 210, 0.4)',
-                },
-              }}
-            >
-              {t('create')} {tNav('sales')}
-            </Button>
-          )}
-        </Box>
+        <TableHeader
+          left={
+            <>
+              {hasPermission(profile?.role || 'STAFF', 'SALES_CREATE') && (
+                <Button
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  onClick={handleCreate}
+                  sx={{
+                    boxShadow: '0 2px 8px rgba(25, 118, 210, 0.3)',
+                    '&:hover': {
+                      boxShadow: '0 4px 12px rgba(25, 118, 210, 0.4)',
+                    },
+                  }}
+                >
+                  {t('create')} {tNav('sales')}
+                </Button>
+              )}
+              {hasPermission(profile?.role || 'STAFF', 'SALES_CREATE') && (
+                <Button
+                  variant="outlined"
+                  startIcon={<AddIcon />}
+                  onClick={handleCreateBundle}
+                >
+                  Create Bundle
+                </Button>
+              )}
+            </>
+          }
+          totalCount={sales.length}
+          selectedCount={selectedRows.length}
+          right={
+            <Tooltip title="Refresh">
+              <IconButton onClick={onRefresh} size="small">
+                <RefreshIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          }
+        />
+      )}
+
+      {selectedRows.length > 0 && (
+        <BulkActionBar
+          count={selectedRows.length}
+          onClear={() => setSelectedRows([])}
+          actions={
+            <>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<FileDownloadIcon />}
+                onClick={handleBulkExport}
+              >
+                Export
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<LabelIcon />}
+                onClick={(event) => setMarkMenuAnchor(event.currentTarget)}
+                disabled={!hasPermission(profile?.role || 'STAFF', 'SALES_UPDATE')}
+              >
+                Mark promo
+              </Button>
+              <Menu
+                anchorEl={markMenuAnchor}
+                open={Boolean(markMenuAnchor)}
+                onClose={() => setMarkMenuAnchor(null)}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+              >
+                <MenuItem onClick={() => handleBulkMarkPromo(true)}>Promo</MenuItem>
+                <MenuItem onClick={() => handleBulkMarkPromo(false)}>Regular</MenuItem>
+              </Menu>
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                startIcon={<DeleteIcon />}
+                onClick={() => setBulkDeleteDialogOpen(true)}
+                disabled={!hasPermission(profile?.role || 'STAFF', 'SALES_DELETE')}
+              >
+                Delete
+              </Button>
+            </>
+          }
+        />
       )}
 
       {sales.length === 0 ? (
@@ -266,6 +531,16 @@ export function SalesTable({ sales, products, onRefresh }: SalesTableProps) {
               {t('create')} {tNav('sales')}
             </Button>
           )}
+          {hasPermission(profile?.role || 'STAFF', 'SALES_CREATE') && (
+            <Button
+              variant="outlined"
+              startIcon={<AddIcon />}
+              onClick={handleCreateBundle}
+              sx={{ mt: 2, ml: 2 }}
+            >
+              Create Bundle
+            </Button>
+          )}
         </Box>
       ) : (
         <DataGrid
@@ -275,6 +550,17 @@ export function SalesTable({ sales, products, onRefresh }: SalesTableProps) {
           rowSelectionModel={selectedRows}
           onRowSelectionModelChange={setSelectedRows}
           disableRowSelectionOnClick
+          columnVisibilityModel={
+            isSmDown
+              ? { pricingMode: false, isPromo: false, pricePerUnit: false }
+              : undefined
+          }
+          density={isSmDown ? 'compact' : 'standard'}
+          rowHeight={isSmDown ? 48 : 56}
+          columnHeaderHeight={isSmDown ? 44 : 52}
+          getRowClassName={(params) =>
+            params.indexRelativeToCurrentPage % 2 === 0 ? 'MuiDataGrid-row--striped' : ''
+          }
           slots={{
             toolbar: GridToolbar,
           }}
@@ -284,34 +570,45 @@ export function SalesTable({ sales, products, onRefresh }: SalesTableProps) {
             },
           }}
           pageSizeOptions={[10, 25, 50, 100]}
-          sx={{
+          sx={(theme) => ({
             border: 'none',
             '& .MuiDataGrid-cell': {
-              borderBottom: '1px solid rgba(224, 224, 224, 0.5)',
+              borderBottom: '1px solid',
+              borderColor: 'divider',
               '&:focus': {
                 outline: 'none',
               },
             },
+            '& .MuiDataGrid-row--striped': {
+              backgroundColor: theme.palette.mode === 'dark'
+                ? 'rgba(255, 255, 255, 0.03)'
+                : 'rgba(0, 0, 0, 0.02)',
+            },
             '& .MuiDataGrid-row': {
               '&:hover': {
-                backgroundColor: 'rgba(25, 118, 210, 0.04)',
+                backgroundColor: 'action.hover',
               },
             },
             '& .MuiDataGrid-columnHeaders': {
-              backgroundColor: 'rgba(0, 0, 0, 0.02)',
-              borderBottom: '2px solid rgba(0, 0, 0, 0.12)',
+              backgroundColor: 'background.default',
+              borderBottom: '1px solid',
+              borderColor: 'divider',
               fontWeight: 600,
+              fontSize: { xs: '0.75rem', sm: '0.8125rem' },
             },
             '& .MuiDataGrid-toolbarContainer': {
               padding: '12px 16px',
-              backgroundColor: 'rgba(0, 0, 0, 0.02)',
-              borderBottom: '1px solid rgba(0, 0, 0, 0.12)',
+              backgroundColor: 'background.default',
+              borderBottom: '1px solid',
+              borderColor: 'divider',
+              flexWrap: 'wrap',
+              gap: 1,
             },
             '& .MuiDataGrid-footerContainer': {
-              borderTop: '1px solid rgba(0, 0, 0, 0.12)',
-              backgroundColor: 'rgba(0, 0, 0, 0.02)',
+              borderTop: '1px solid',
+              borderColor: 'divider',
             },
-          }}
+          })}
         />
       )}
 
@@ -322,7 +619,38 @@ export function SalesTable({ sales, products, onRefresh }: SalesTableProps) {
           setSaleToEdit(null);
         }}
         onSubmit={handleFormSubmit}
-        initialData={saleToEdit || undefined}
+        initialData={saleToEdit ? {
+          id: saleToEdit.id,
+          productId: saleToEdit.product?.id ?? '',
+          quantity: saleToEdit.quantity ?? 1,
+          pricePerUnit: saleToEdit.pricePerUnit ?? 0,
+          pricingMode: saleToEdit.pricingMode,
+          bundleQty: saleToEdit.bundleQty ?? undefined,
+          bundlePriceTotal: saleToEdit.bundlePriceTotal ?? undefined,
+          isPromo: saleToEdit.isPromo,
+          saleDate: saleToEdit.saleDate,
+        } : undefined}
+        products={products}
+      />
+
+      <BundleSaleForm
+        open={bundleFormOpen}
+        onClose={() => {
+          setBundleFormOpen(false);
+          setBundleToEdit(null);
+        }}
+        onSubmit={handleBundleSubmit}
+        initialData={bundleToEdit && bundleToEdit.items ? {
+          id: bundleToEdit.id,
+          saleDate: bundleToEdit.saleDate,
+          notes: bundleToEdit.notes,
+          items: bundleToEdit.items.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            pricePerUnit: item.pricePerUnit,
+            productName: item.product.name,
+          })),
+        } : undefined}
         products={products}
       />
 
@@ -335,6 +663,16 @@ export function SalesTable({ sales, products, onRefresh }: SalesTableProps) {
         onConfirm={handleDeleteConfirm}
         title="Delete Sale"
         message={`Are you sure you want to delete this sale? Stock will be restored.`}
+        confirmColor="error"
+        confirmLabel="Delete"
+      />
+
+      <ConfirmDialog
+        open={bulkDeleteDialogOpen}
+        onClose={() => setBulkDeleteDialogOpen(false)}
+        onConfirm={handleBulkDeleteConfirm}
+        title="Delete Sales"
+        message={`Are you sure you want to delete ${selectedRows.length} sale${selectedRows.length === 1 ? '' : 's'}? Stock will be restored.`}
         confirmColor="error"
         confirmLabel="Delete"
       />

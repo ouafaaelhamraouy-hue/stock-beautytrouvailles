@@ -638,7 +638,7 @@ export default function LoginPage() {
               >
                 {t('dontHaveAccount')}{' '}
                 <MuiLink
-                  href="#"
+                  href={`/${locale}/register`}
                   sx={{
                     color: 'primary.main',
                     textDecoration: 'none',

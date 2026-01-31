@@ -10,6 +10,7 @@ import { InventoryFilters } from '@/components/inventory/InventoryFilters';
 import { ShipmentAccordion } from '@/components/inventory/ShipmentAccordion';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui';
 import { useQuery } from '@tanstack/react-query';
+import type { PurchaseSource } from '@prisma/client';
 
 interface Category {
   id: string;
@@ -27,7 +28,7 @@ interface Arrivage {
   reference: string;
   shipDate: string | null;
   purchaseDate: string | null;
-  source: string;
+  source: PurchaseSource;
   summary: {
     totalProducts: number;
     totalStock: number;

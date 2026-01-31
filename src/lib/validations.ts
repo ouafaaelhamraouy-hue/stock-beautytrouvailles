@@ -43,16 +43,39 @@ export const brandSchema = z.object({
 export type BrandFormData = z.infer<typeof brandSchema>;
 
 // Sale validations
-export const saleSchema = z.object({
+export const saleItemSchema = z.object({
   productId: z.string().min(1, 'Product is required'),
   quantity: z.number().int().min(1, 'Quantity must be at least 1'),
   pricePerUnit: z.number().min(0, 'Price must be positive'),
+});
+
+export const saleSchema = z.object({
+  productId: z.string().min(1, 'Product is required').optional(),
+  quantity: z.number().int().min(1, 'Quantity must be at least 1').optional(),
+  pricePerUnit: z.number().min(0, 'Price must be positive').optional(),
+  pricingMode: z.enum(['REGULAR', 'PROMO', 'CUSTOM', 'BUNDLE']).default('REGULAR'),
+  bundlePriceTotal: z.number().min(0, 'Bundle total price must be positive').optional(),
+  items: z.array(saleItemSchema).optional(),
   isPromo: z.boolean().default(false),
   saleDate: z.date().default(new Date()),
   notes: z.string().max(500, 'Notes must be less than 500 characters').optional().nullable(),
 }).refine(
+  (data) => {
+    if (data.pricingMode !== 'BUNDLE') return true;
+    return Array.isArray(data.items) && data.items.length >= 2;
+  },
+  { message: 'At least two items are required for a bundle', path: ['items'] }
+).refine(
+  (data) => {
+    if (data.pricingMode === 'BUNDLE') return true;
+    return typeof data.productId === 'string'
+      && typeof data.quantity === 'number'
+      && typeof data.pricePerUnit === 'number';
+  },
+  { message: 'Product, quantity, and price are required', path: ['productId'] }
+).refine(
   () => {
-    // totalAmount must equal quantity * pricePerUnit (validated at API level)
+    // totalAmount must equal quantity * price per unit (validated at API level)
     return true; // This will be validated at API level
   },
   { message: 'Total amount must equal quantity × price per unit' }
@@ -64,12 +87,14 @@ export type SaleFormData = z.infer<typeof saleSchema>;
 export const shipmentSchema = z.object({
   reference: z.string().min(1, 'Reference is required').max(100, 'Reference must be less than 100 characters'),
   source: z.enum(['ACTION', 'RITUALS', 'NOCIBE', 'LIDL', 'CARREFOUR', 'PHARMACIE', 'AMAZON_FR', 'SEPHORA', 'OTHER']),
-  arrivalDate: z.date().optional(),
-  status: z.enum(['PENDING', 'IN_TRANSIT', 'ARRIVED', 'PROCESSED']).default('PENDING'),
+  purchaseDate: z.date().optional(),
+  shipDate: z.date().optional(),
+  receivedDate: z.date().optional(),
+  status: z.enum(['PENDING', 'PURCHASED', 'SHIPPED', 'IN_TRANSIT', 'CUSTOMS', 'RECEIVED']).default('PENDING'),
   exchangeRate: z.number().min(0.01, 'Exchange rate must be positive'),
   shippingCostEUR: z.number().min(0, 'Cost must be positive').default(0),
-  customsCostEUR: z.number().min(0, 'Cost must be positive').default(0),
   packagingCostEUR: z.number().min(0, 'Cost must be positive').default(0),
+  totalCostEUR: z.number().min(0, 'Cost must be positive').default(0),
 });
 
 export type ShipmentFormData = z.infer<typeof shipmentSchema>;
@@ -88,7 +113,7 @@ export const expenseSchema = z.object({
   date: z.date().default(new Date()),
   amountEUR: z.number().min(0, 'Amount must be positive'),
   amountDH: z.number().min(0, 'Amount must be positive'),
-  description: z.string().min(1, 'Description is required').max(500, 'Description must be less than 500 characters'),
+  description: z.string().max(500, 'Description must be less than 500 characters').optional().nullable(),
   type: z.enum(['OPERATIONAL', 'MARKETING', 'UTILITIES', 'PACKAGING', 'SHIPPING', 'ADS', 'OTHER']),
   shipmentId: z.string().optional().nullable(), // Backward compatibility
   arrivageId: z.string().optional().nullable(),

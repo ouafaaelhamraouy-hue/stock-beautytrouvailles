@@ -18,36 +18,50 @@ import { toast } from 'sonner';
 import { LoadingState, ErrorState } from '@/components/ui';
 import { Receipt } from '@/components/sales/Receipt';
 import { SaleForm } from '@/components/sales/SaleForm';
+import { BundleSaleForm } from '@/components/sales/BundleSaleForm';
 import { ConfirmDialog } from '@/components/ui';
 import { useUserProfile } from '@/hooks/useUserProfile';
-import { hasPermission } from '@/lib/permissions';
+import { hasPermission, isAdmin as isAdminRole } from '@/lib/permissions';
 import type { SaleFormData } from '@/lib/validations';
 
 interface Sale {
   id: string;
   saleDate: string;
-  product: {
+  product?: {
     id: string;
-    sku: string;
     name: string;
     category: {
       name: string;
     };
-  };
-  quantity: number;
-  pricePerUnit: number;
+  } | null;
+  quantity?: number | null;
+  pricePerUnit?: number | null;
   totalAmount: number;
+  pricingMode: 'REGULAR' | 'PROMO' | 'CUSTOM' | 'BUNDLE';
+  items?: Array<{
+    productId: string;
+    quantity: number;
+    pricePerUnit: number;
+    product: {
+      id: string;
+      name: string;
+      category: {
+        name: string;
+      };
+    };
+  }>;
   isPromo: boolean;
+  notes?: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
 interface Product {
   id: string;
-  sku: string;
   name: string;
-  basePriceEUR: number;
-  basePriceDH: number;
+  sellingPriceDh: number;
+  promoPriceDh: number | null;
+  purchasePriceMad: number;
   availableStock: number;
   category: {
     name: string;
@@ -67,9 +81,10 @@ export default function SaleDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [bundleFormOpen, setBundleFormOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
-  const isAdmin = profile?.role === 'ADMIN';
+  const isAdmin = profile ? isAdminRole(profile.role) : false;
 
   const fetchSale = useCallback(async () => {
     try {
@@ -150,6 +165,25 @@ export default function SaleDetailPage() {
     fetchSale();
   };
 
+  const handleBundleSubmit = async (data: SaleFormData) => {
+    if (!sale) return;
+
+    const response = await fetch(`/api/sales/${sale.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to save sale');
+    }
+
+    toast.success('Bundle sale updated successfully');
+    setBundleFormOpen(false);
+    fetchSale();
+  };
+
   if (loading && !sale) {
     return (
       <Container maxWidth="md">
@@ -189,7 +223,13 @@ export default function SaleDetailPage() {
             <Button
               variant="outlined"
               startIcon={<EditIcon />}
-              onClick={() => setFormOpen(true)}
+              onClick={() => {
+                if (sale.pricingMode === 'BUNDLE') {
+                  setBundleFormOpen(true);
+                } else {
+                  setFormOpen(true);
+                }
+              }}
               sx={{ mr: 1 }}
             >
               {t('edit')}
@@ -215,13 +255,32 @@ export default function SaleDetailPage() {
             open={formOpen}
             onClose={() => setFormOpen(false)}
             onSubmit={handleFormSubmit}
-            initialData={sale ? {
+            initialData={sale && sale.pricingMode !== 'BUNDLE' ? {
               id: sale.id,
-              productId: sale.product.id,
-              quantity: sale.quantity,
-              pricePerUnit: sale.pricePerUnit,
+              productId: sale.product?.id || '',
+              quantity: sale.quantity || 1,
+              pricePerUnit: sale.pricePerUnit || 0,
+              pricingMode: sale.pricingMode,
               isPromo: sale.isPromo,
               saleDate: sale.saleDate,
+            } : undefined}
+            products={products}
+          />
+
+          <BundleSaleForm
+            open={bundleFormOpen}
+            onClose={() => setBundleFormOpen(false)}
+            onSubmit={handleBundleSubmit}
+            initialData={sale && sale.items ? {
+              id: sale.id,
+              saleDate: sale.saleDate,
+              notes: sale.notes,
+              items: sale.items.map((item) => ({
+                productId: item.productId,
+                quantity: item.quantity,
+                pricePerUnit: item.pricePerUnit,
+                productName: item.product.name,
+              })),
             } : undefined}
             products={products}
           />

@@ -35,6 +35,9 @@ export async function POST(
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     // Check permission
     if (!hasPermission(userProfile.role, 'STOCK_ADJUST')) {
@@ -55,8 +58,8 @@ export async function POST(
     const { delta, reason, notes } = validationResult.data;
 
     // Fetch product
-    const product = await prisma.product.findUnique({
-      where: { id: productId },
+    const product = await prisma.product.findFirst({
+      where: { id: productId, organizationId: userProfile.organizationId },
     });
 
     if (!product) {
@@ -86,11 +89,11 @@ export async function POST(
       
       let updatedProduct;
       if (delta < 0) {
-        // Reducing stock: increase quantitySold
+        // Reducing stock: adjust received (does NOT count as sold)
         updatedProduct = await tx.product.update({
           where: { id: productId },
           data: {
-            quantitySold: { increment: Math.abs(delta) },
+            quantityReceived: { decrement: Math.abs(delta) },
           },
         });
       } else {
@@ -107,11 +110,12 @@ export async function POST(
       await tx.stockMovement.create({
         data: {
           productId,
+          organizationId: userProfile.organizationId,
           type: 'ADJUSTMENT',
           quantity: delta,
           previousQty: currentStock,
           newQty: newStock,
-          reference: `Stock Adjustment`,
+          reference: delta < 0 ? 'Stock Adjustment (decrease)' : 'Stock Adjustment (increase)',
           notes: notes || reason, // Use reason as notes if notes not provided
           userId: user.id,
         },

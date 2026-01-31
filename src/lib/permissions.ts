@@ -52,7 +52,7 @@ export const PERMISSIONS = {
   USERS_UPDATE: ['SUPER_ADMIN'],
   USERS_DELETE: ['SUPER_ADMIN'],
   USERS_MANAGE_ROLES: ['SUPER_ADMIN'], // Can assign SUPER_ADMIN role
-} as const;
+} as const satisfies Record<string, readonly UserRole[]>;
 
 export type Permission = keyof typeof PERMISSIONS;
 
@@ -60,7 +60,7 @@ export type Permission = keyof typeof PERMISSIONS;
  * Check if a user role has a specific permission
  */
 export function hasPermission(role: UserRole, permission: Permission): boolean {
-  const allowedRoles = PERMISSIONS[permission];
+  const allowedRoles = PERMISSIONS[permission] as readonly UserRole[];
   return allowedRoles.includes(role);
 }
 

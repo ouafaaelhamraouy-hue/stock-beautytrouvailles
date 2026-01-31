@@ -13,6 +13,8 @@ import {
   MenuItem,
   Badge,
   Tooltip,
+  Box as MuiBox,
+  ButtonBase,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import NotificationsIcon from '@mui/icons-material/Notifications';
@@ -22,6 +24,7 @@ import PersonIcon from '@mui/icons-material/Person';
 import MenuIcon from '@mui/icons-material/Menu';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
+import AutoModeIcon from '@mui/icons-material/AutoMode';
 import { useThemeMode } from '@/components/providers/ThemeProvider';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
@@ -158,7 +161,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
           sx={(theme) => ({ 
             mr: 2,
             color: 'text.primary',
-            display: { xs: 'block', md: 'none' }, // Only show on mobile
+            display: { xs: 'inline-flex', md: 'inline-flex' },
             '&:hover': {
               backgroundColor: theme.palette.mode === 'dark'
                 ? 'rgba(255, 255, 255, 0.08)'
@@ -274,20 +277,70 @@ export function Topbar({ onMenuClick }: TopbarProps) {
         </Menu>
 
         {/* Theme Toggle */}
-        <Tooltip title={mode === 'light' ? 'Mode sombre' : 'Mode clair'}>
-          <IconButton 
+        <Tooltip title={`Theme: ${mode.charAt(0).toUpperCase() + mode.slice(1)}`}>
+          <ButtonBase
             onClick={toggleMode}
+            aria-label="Toggle theme"
             sx={(theme) => ({
-              color: 'text.primary',
+              borderRadius: 999,
+              p: 0.5,
+              backgroundColor: theme.palette.mode === 'dark'
+                ? 'rgba(255, 255, 255, 0.06)'
+                : 'rgba(0, 0, 0, 0.04)',
+              border: `1px solid ${theme.palette.divider}`,
+              transition: 'all 150ms ease',
               '&:hover': {
                 backgroundColor: theme.palette.mode === 'dark'
-                  ? 'rgba(255, 255, 255, 0.08)'
-                  : 'rgba(0, 0, 0, 0.04)',
+                  ? 'rgba(255, 255, 255, 0.1)'
+                  : 'rgba(0, 0, 0, 0.06)',
               },
             })}
           >
-            {mode === 'light' ? <DarkModeIcon /> : <LightModeIcon />}
-          </IconButton>
+            <MuiBox
+              sx={{
+                position: 'relative',
+                width: 84,
+                height: 32,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                px: 1,
+                gap: 1,
+              }}
+            >
+              <LightModeIcon sx={{ fontSize: 16, opacity: 0.6 }} />
+              <AutoModeIcon sx={{ fontSize: 16, opacity: 0.6 }} />
+              <DarkModeIcon sx={{ fontSize: 16, opacity: 0.6 }} />
+
+              <MuiBox
+                sx={(theme) => ({
+                  position: 'absolute',
+                  top: 4,
+                  left: 4,
+                  width: 24,
+                  height: 24,
+                  borderRadius: '50%',
+                  backgroundColor: theme.palette.background.paper,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: theme.palette.mode === 'dark'
+                    ? '0 4px 10px rgba(0, 0, 0, 0.4)'
+                    : '0 4px 10px rgba(0, 0, 0, 0.12)',
+                  transform: mode === 'light'
+                    ? 'translateX(0)'
+                    : mode === 'system'
+                    ? 'translateX(26px)'
+                    : 'translateX(52px)',
+                  transition: 'transform 180ms ease',
+                })}
+              >
+                {mode === 'light' && <LightModeIcon sx={{ fontSize: 16 }} />}
+                {mode === 'dark' && <DarkModeIcon sx={{ fontSize: 16 }} />}
+                {mode === 'system' && <AutoModeIcon sx={{ fontSize: 16 }} />}
+              </MuiBox>
+            </MuiBox>
+          </ButtonBase>
         </Tooltip>
 
         {/* Locale Switch */}
@@ -380,7 +433,11 @@ export function Topbar({ onMenuClick }: TopbarProps) {
                   </Typography>
                   {profile && (
                     <Typography variant="caption" color="text.secondary">
-                      {profile.role === 'ADMIN' ? 'Admin' : 'Staff'}
+                      {profile.role === 'SUPER_ADMIN'
+                        ? 'Super Admin'
+                        : profile.role === 'ADMIN'
+                          ? 'Admin'
+                          : 'Staff'}
                     </Typography>
                   )}
                 </Box>

@@ -8,3 +8,5 @@ export { CurrencyDisplay } from './CurrencyDisplay';
 export { StatusBadge } from './StatusBadge';
 export { SearchInput } from './SearchInput';
 export { TableSkeleton } from './TableSkeleton';
+export { TableHeader } from './TableHeader';
+export { BulkActionBar } from './BulkActionBar';

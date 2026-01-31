@@ -17,7 +17,7 @@ import { toast } from 'sonner';
 import SaveIcon from '@mui/icons-material/Save';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import { useUserProfile } from '@/hooks/useUserProfile';
-import { hasPermission } from '@/lib/permissions';
+import { hasPermission, isAdmin as isAdminRole } from '@/lib/permissions';
 import { RouteGuard } from '@/components/auth/RouteGuard';
 
 interface Settings {
@@ -44,7 +44,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const isAdmin = profile?.role === 'ADMIN';
+  const isAdmin = profile ? isAdminRole(profile.role) : false;
   const canEdit = isAdmin && hasPermission(profile?.role || 'STAFF', 'PRODUCTS_UPDATE');
 
   useEffect(() => {

@@ -22,6 +22,7 @@ import AssessmentIcon from '@mui/icons-material/Assessment';
 import SettingsIcon from '@mui/icons-material/Settings';
 import PeopleIcon from '@mui/icons-material/People';
 import { useUserProfile } from '@/hooks/useUserProfile';
+import { isAdmin as isAdminRole, isSuperAdmin as isSuperAdminRole } from '@/lib/permissions';
 
 export function MobileNav() {
   const t = useTranslations('nav');
@@ -30,7 +31,8 @@ export function MobileNav() {
   const { profile } = useUserProfile();
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const isAdmin = profile?.role === 'ADMIN';
+  const isAdmin = profile ? isAdminRole(profile.role) : false;
+  const isSuperAdmin = profile ? isSuperAdminRole(profile.role) : false;
 
   const mainNavItems = [
     { label: t('dashboard'), icon: <DashboardIcon />, path: '/dashboard' },
@@ -44,10 +46,14 @@ export function MobileNav() {
     { label: t('expenses'), icon: <ReceiptIcon />, path: '/expenses', adminOnly: true },
     { label: t('reports'), icon: <AssessmentIcon />, path: '/reports' },
     { label: t('settings'), icon: <SettingsIcon />, path: '/settings', adminOnly: true },
-    { label: t('users'), icon: <PeopleIcon />, path: '/users', adminOnly: true },
+    { label: t('team'), icon: <PeopleIcon />, path: '/admin/team', superAdminOnly: true },
   ];
 
-  const filteredMenuItems = menuItems.filter((item) => !item.adminOnly || isAdmin);
+  const filteredMenuItems = menuItems.filter((item) => {
+    if (item.superAdminOnly) return isSuperAdmin;
+    if (item.adminOnly) return isAdmin;
+    return true;
+  });
 
   const handleNavigation = (path: string) => {
     router.push(path);

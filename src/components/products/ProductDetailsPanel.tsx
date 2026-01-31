@@ -18,6 +18,7 @@ import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import HistoryIcon from '@mui/icons-material/History';
 import InventoryIcon from '@mui/icons-material/Inventory';
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import { Product } from '@/hooks/useProducts';
 import { formatCurrency } from '@/lib/format';
 import { calculateMargin, calculateNetMargin } from '@/lib/calculations';
@@ -33,6 +34,8 @@ interface ProductDetailsPanelProps {
   onAddArrivage: (product: Product) => void;
   onViewHistory: (product: Product) => void;
   onAdjustStock: (product: Product) => void;
+  onResetStock: (product: Product) => void;
+  canResetStock?: boolean;
   packagingCost?: number;
 }
 
@@ -45,6 +48,8 @@ export function ProductDetailsPanel({
   onAddArrivage,
   onViewHistory,
   onAdjustStock,
+  onResetStock,
+  canResetStock = false,
   packagingCost = 8.0,
 }: ProductDetailsPanelProps) {
   const theme = useTheme();
@@ -137,6 +142,49 @@ export function ProductDetailsPanel({
       {/* Content */}
       <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
         <Stack spacing={3}>
+          {/* Quick Actions */}
+          <Box>
+            <Typography
+              variant="subtitle2"
+              sx={{
+                fontWeight: 600,
+                mb: 1.25,
+                color: 'text.secondary',
+                textTransform: 'uppercase',
+                fontSize: '0.75rem',
+                letterSpacing: '0.05em',
+              }}
+            >
+              Quick Actions
+            </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+              <Button
+                variant="contained"
+                startIcon={<ShoppingCartIcon />}
+                onClick={() => onSell(product)}
+                fullWidth={isMobile}
+              >
+                Sell
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<InventoryIcon />}
+                onClick={() => onAdjustStock(product)}
+                fullWidth={isMobile}
+              >
+                Adjust Stock
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<LocalShippingIcon />}
+                onClick={() => onAddArrivage(product)}
+                fullWidth={isMobile}
+              >
+                Add Arrivage
+              </Button>
+            </Stack>
+          </Box>
+
           {/* Stock Summary */}
           <Box>
             <Typography
@@ -153,6 +201,17 @@ export function ProductDetailsPanel({
               Stock Summary
             </Typography>
             <Stack spacing={1.5}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="body2" color="text.secondary">
+                  Status
+                </Typography>
+                <Chip
+                  label={stockStatus.label}
+                  color={stockStatus.color}
+                  size="small"
+                  sx={{ fontWeight: 600 }}
+                />
+              </Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                 <Typography variant="body2" color="text.secondary">
                   Received
@@ -387,32 +446,25 @@ export function ProductDetailsPanel({
           flexDirection: { xs: 'column', sm: 'row' },
         }}
       >
-        <Button
-          variant="contained"
-          startIcon={<ShoppingCartIcon />}
-          onClick={() => onSell(product)}
-          fullWidth={isMobile}
-          sx={{ flex: 1 }}
-        >
-          Sell
-        </Button>
-        <Button
-          variant="outlined"
-          startIcon={<InventoryIcon />}
-          onClick={() => onAdjustStock(product)}
-          fullWidth={isMobile}
-          sx={{ flex: 1 }}
-        >
-          Adjust Stock
-        </Button>
+        {canResetStock && (
+          <Button
+            variant="outlined"
+            color="warning"
+            startIcon={<RestartAltIcon />}
+            onClick={() => onResetStock(product)}
+            fullWidth={isMobile}
+            sx={{ flex: 1 }}
+          >
+            Reset Stock
+          </Button>
+        )}
         <Button
           variant="outlined"
-          startIcon={<LocalShippingIcon />}
-          onClick={() => onAddArrivage(product)}
+          onClick={onClose}
           fullWidth={isMobile}
           sx={{ flex: 1 }}
         >
-          Add Arrivage
+          Close
         </Button>
         <Button
           variant="outlined"
@@ -457,21 +509,26 @@ export function ProductDetailsPanel({
     );
   }
 
-  // Desktop: Fixed panel (persistent drawer)
+  // Desktop: Side sheet (no backdrop) with integrated styling
   return (
     <Drawer
       anchor="right"
       open={open && !!product}
       onClose={onClose}
-      variant="persistent"
+      variant="temporary"
+      BackdropProps={{ invisible: true }}
+      ModalProps={{ keepMounted: true, disableScrollLock: true }}
       PaperProps={{
         sx: {
           width: 400,
           borderLeft: '1px solid',
           borderColor: 'divider',
+          backgroundColor: theme.palette.background.paper,
+          borderTopLeftRadius: 0,
+          borderBottomLeftRadius: 0,
           boxShadow: theme.palette.mode === 'dark'
-            ? '-4px 0 24px rgba(0, 0, 0, 0.5)'
-            : '-4px 0 24px rgba(0, 0, 0, 0.15)',
+            ? '-2px 0 12px rgba(0, 0, 0, 0.35)'
+            : '-2px 0 12px rgba(0, 0, 0, 0.12)',
         },
       }}
     >

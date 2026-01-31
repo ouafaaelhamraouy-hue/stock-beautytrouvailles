@@ -107,10 +107,20 @@ export async function POST(request: Request) {
       );
     }
 
-    // Update user role to SUPER_ADMIN
+    const defaultOrg = { name: 'BeautyTrouvailles', slug: 'beautytrouvailles' };
+    const organization = await prisma.organization.upsert({
+      where: { slug: defaultOrg.slug },
+      update: {},
+      create: { name: defaultOrg.name, slug: defaultOrg.slug },
+    });
+
+    // Update user role to SUPER_ADMIN (attach org if missing)
     const updatedUser = await prisma.user.update({
       where: { email },
-      data: { role: UserRole.SUPER_ADMIN },
+      data: {
+        role: UserRole.SUPER_ADMIN,
+        organizationId: user.organizationId || organization.id,
+      },
     });
 
     return NextResponse.json({

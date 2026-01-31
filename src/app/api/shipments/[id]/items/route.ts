@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
+import { recalcArrivageTotals } from '@/lib/arrivageTotals';
 
 /**
  * POST /api/shipments/[id]/items
@@ -33,6 +34,9 @@ export async function POST(
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'ARRIVAGES_UPDATE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -46,8 +50,8 @@ export async function POST(
     }
 
     // Verify arrivage exists
-    const arrivage = await prisma.arrivage.findUnique({
-      where: { id: arrivageId },
+    const arrivage = await prisma.arrivage.findFirst({
+      where: { id: arrivageId, organizationId: userProfile.organizationId },
     });
 
     if (!arrivage) {
@@ -55,20 +59,17 @@ export async function POST(
     }
 
     // Verify product exists
-    const product = await prisma.product.findUnique({
-      where: { id: productId },
+    const product = await prisma.product.findFirst({
+      where: { id: productId, organizationId: userProfile.organizationId },
     });
 
     if (!product) {
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
 
-    // Check if product is already linked to this arrivage
+    // If product is already linked to this arrivage, treat as idempotent
     if (product.arrivageId === arrivageId) {
-      return NextResponse.json(
-        { error: 'Product is already linked to this arrivage' },
-        { status: 400 }
-      );
+      return NextResponse.json(product, { status: 200 });
     }
 
     // Link product to arrivage
@@ -86,11 +87,11 @@ export async function POST(
 
     // Update arrivage product count
     const productCount = await prisma.product.count({
-      where: { arrivageId },
+      where: { arrivageId, organizationId: userProfile.organizationId },
     });
 
     const totalUnits = await prisma.product.aggregate({
-      where: { arrivageId },
+      where: { arrivageId, organizationId: userProfile.organizationId },
       _sum: {
         quantityReceived: true,
       },
@@ -103,6 +104,7 @@ export async function POST(
         totalUnits: totalUnits._sum.quantityReceived || 0,
       },
     });
+    await recalcArrivageTotals(arrivageId, userProfile.organizationId);
 
     return NextResponse.json(updatedProduct, { status: 201 });
   } catch (error) {
@@ -141,14 +143,17 @@ export async function GET(
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'ARRIVAGES_READ')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // Verify arrivage exists
-    const arrivage = await prisma.arrivage.findUnique({
-      where: { id: arrivageId },
+    const arrivage = await prisma.arrivage.findFirst({
+      where: { id: arrivageId, organizationId: userProfile.organizationId },
     });
 
     if (!arrivage) {
@@ -157,7 +162,7 @@ export async function GET(
 
     // Get all products linked to this arrivage
     const products = await prisma.product.findMany({
-      where: { arrivageId },
+      where: { arrivageId, organizationId: userProfile.organizationId },
       include: {
         category: true,
         brand: true,

@@ -4,18 +4,20 @@ import { useState, useEffect } from 'react';
 import { Container, Typography, Box, Paper } from '@mui/material';
 import { useTranslations } from 'next-intl';
 import { ShipmentsTable } from '@/components/shipments/ShipmentsTable';
+import type { ShipmentFormData } from '@/lib/validations';
 import { LoadingState, ErrorState } from '@/components/ui';
 import { RouteGuard } from '@/components/auth/RouteGuard';
 
 interface Shipment {
   id: string;
   reference: string;
-  source: string;
-  arrivalDate?: string | null;
-  status: 'PENDING' | 'IN_TRANSIT' | 'ARRIVED' | 'PROCESSED';
+  source: ShipmentFormData['source'];
+  purchaseDate?: string | null;
+  shipDate?: string | null;
+  receivedDate?: string | null;
+  status: 'PENDING' | 'PURCHASED' | 'SHIPPED' | 'IN_TRANSIT' | 'CUSTOMS' | 'RECEIVED';
   exchangeRate: number;
   shippingCostEUR: number;
-  customsCostEUR: number;
   packagingCostEUR: number;
   totalCostEUR: number;
   totalCostDH: number;
@@ -48,7 +50,18 @@ export default function ShipmentsPage() {
         throw new Error('Failed to fetch shipments');
       }
       const data = await response.json();
-      setShipments(data.shipments || []);
+      const normalized = (data.shipments || []).map((shipment: any) => ({
+        ...shipment,
+        totalCostEUR:
+          typeof shipment.totalCostEUR === 'number'
+            ? shipment.totalCostEUR
+            : Number(shipment.totalCostEur ?? 0),
+        totalCostDH:
+          typeof shipment.totalCostDH === 'number'
+            ? shipment.totalCostDH
+            : Number(shipment.totalCostDh ?? 0),
+      }));
+      setShipments(normalized);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load shipments');
     } finally {

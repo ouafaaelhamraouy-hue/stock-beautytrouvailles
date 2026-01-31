@@ -10,15 +10,12 @@ import {
   Chip,
   Typography,
   Alert,
-  Card,
-  CardContent,
   Grid,
   IconButton,
-  RadioGroup,
-  FormControlLabel,
-  Radio,
-  FormControl,
-  FormLabel,
+  ToggleButton,
+  ToggleButtonGroup,
+  Divider,
+  Stack,
 } from '@mui/material';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
@@ -31,7 +28,7 @@ import { calculateSaleTotal } from '@/lib/calculations';
 
 type PriceMode = 'regular' | 'promo' | 'custom';
 
-interface Product {
+export interface QuickSaleProduct {
   id: string;
   name: string;
   sellingPriceDh: number;
@@ -46,7 +43,7 @@ interface Product {
 }
 
 interface QuickSaleProps {
-  products: Product[];
+  products: QuickSaleProduct[];
   onSaleComplete: () => void;
   initialProductId?: string; // For pre-selecting product from Products page
 }
@@ -196,209 +193,291 @@ export function QuickSale({ products, onSaleComplete, initialProductId }: QuickS
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns}>
       <Box>
-        <Paper elevation={2} sx={{ p: 3, borderRadius: 2 }}>
-          <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, mb: 3 }}>
-            {tSales('quickSale')}
-          </Typography>
+        <Paper
+          elevation={0}
+          sx={(theme) => ({
+            p: { xs: 2.5, sm: 3 },
+            borderRadius: 3,
+            border: '1px solid',
+            borderColor: theme.palette.divider,
+            backgroundColor: theme.palette.background.paper,
+            boxShadow: theme.palette.mode === 'dark'
+              ? '0 12px 32px rgba(0, 0, 0, 0.35)'
+              : '0 12px 32px rgba(15, 23, 42, 0.08)',
+          })}
+        >
+          <Grid container spacing={3}>
+            <Grid item xs={12} md={8}>
+              <Stack spacing={2.5}>
+                <Box>
+                  <Typography variant="overline" sx={{ fontWeight: 600, color: 'text.secondary', letterSpacing: '0.08em' }}>
+                    Sale details
+                  </Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                    Prepare a quick sale
+                  </Typography>
+                </Box>
 
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
-              <TextField
-                select
-                label={tSales('selectProduct')}
-                value={selectedProductId}
-                onChange={(e) => {
-                  setSelectedProductId(e.target.value);
-                  setPriceMode('regular'); // Reset to regular when product changes
-                }}
-                fullWidth
-                required
-              >
-                {products.length === 0 ? (
-                  <MenuItem disabled>No products with stock available</MenuItem>
-                ) : (
-                  products.map((product) => (
-                    <MenuItem key={product.id} value={product.id}>
-                      {product.name} (
+                <TextField
+                  select
+                  label={tSales('selectProduct')}
+                  value={selectedProductId}
+                  onChange={(e) => {
+                    setSelectedProductId(e.target.value);
+                    setPriceMode('regular');
+                  }}
+                  fullWidth
+                  required
+                >
+                  {products.length === 0 ? (
+                    <MenuItem disabled>No products with stock available</MenuItem>
+                  ) : (
+                    products.map((product) => (
+                      <MenuItem key={product.id} value={product.id}>
+                        {product.name}
+                      </MenuItem>
+                    ))
+                  )}
+                </TextField>
+
+                {selectedProduct && (
+                  <Paper
+                    variant="outlined"
+                    sx={(theme) => ({
+                      p: 2,
+                      borderRadius: 2,
+                      backgroundColor: theme.palette.mode === 'dark'
+                        ? 'rgba(255, 255, 255, 0.03)'
+                        : 'rgba(0, 0, 0, 0.02)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 2,
+                      flexWrap: 'wrap',
+                    })}
+                  >
+                    <Box>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                        {selectedProduct.name}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {selectedProduct.category?.name || 'Uncategorized'}
+                      </Typography>
+                    </Box>
+                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                       <Chip
-                        label={`${product.availableStock} ${tSales('availableStock')}`}
+                        label={`${selectedProduct.availableStock} ${tSales('availableStock')}`}
                         size="small"
-                        color={product.availableStock > 0 ? 'success' : 'error'}
-                        sx={{ ml: 1, height: 20 }}
+                        color={selectedProduct.availableStock > 0 ? 'success' : 'error'}
                       />
-                      )
-                    </MenuItem>
-                  ))
+                      {selectedProduct.promoPriceDh ? (
+                        <Chip label="Promo available" size="small" color="primary" variant="outlined" />
+                      ) : null}
+                    </Stack>
+                  </Paper>
                 )}
-              </TextField>
+
+                {selectedProduct?.availableStock === 0 && (
+                  <Alert severity="error">{tSales('insufficientStock')}</Alert>
+                )}
+
+                {selectedProduct && (
+                  <>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} sm={6}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <IconButton
+                            onClick={handleDecrement}
+                            disabled={quantity <= 1}
+                            color="primary"
+                          >
+                            <RemoveIcon />
+                          </IconButton>
+                          <TextField
+                            label={tSales('quantity')}
+                            type="number"
+                            value={quantity}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 1;
+                              setQuantity(Math.min(Math.max(1, val), selectedProduct.availableStock));
+                            }}
+                            inputProps={{
+                              min: 1,
+                              max: selectedProduct.availableStock,
+                              step: 1,
+                            }}
+                            sx={{ flexGrow: 1 }}
+                            size="small"
+                          />
+                          <IconButton
+                            onClick={handleIncrement}
+                            disabled={quantity >= selectedProduct.availableStock}
+                            color="primary"
+                          >
+                            <AddIcon />
+                          </IconButton>
+                        </Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                          {tSales('availableStock')}: {selectedProduct.availableStock}
+                        </Typography>
+                      </Grid>
+
+                      <Grid item xs={12} sm={6}>
+                        <DatePicker
+                          label={tSales('saleDate')}
+                          value={saleDate}
+                          onChange={(newValue) => setSaleDate(newValue)}
+                          slotProps={{
+                            textField: {
+                              fullWidth: true,
+                              size: 'small',
+                            },
+                          }}
+                        />
+                      </Grid>
+                    </Grid>
+
+                    <Box>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+                        Price mode
+                      </Typography>
+                      <ToggleButtonGroup
+                        value={priceMode}
+                        exclusive
+                        onChange={(_, value) => value && handlePriceModeChange(value as PriceMode)}
+                        size="small"
+                      >
+                        <ToggleButton value="regular">Regular</ToggleButton>
+                        <ToggleButton
+                          value="promo"
+                          disabled={!selectedProduct.promoPriceDh || selectedProduct.promoPriceDh <= 0}
+                        >
+                          Promo
+                        </ToggleButton>
+                        <ToggleButton value="custom">Custom</ToggleButton>
+                      </ToggleButtonGroup>
+                    </Box>
+
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} sm={6}>
+                        <TextField
+                          label={tSales('pricePerUnit') + ' (DH)'}
+                          type="number"
+                          value={pricePerUnit}
+                          onChange={(e) => setPricePerUnit(parseFloat(e.target.value) || 0)}
+                          inputProps={{ step: '0.01', min: 0 }}
+                          fullWidth
+                          size="small"
+                          disabled={priceMode !== 'custom'}
+                        />
+                        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                          {priceMode === 'regular' && `Regular: ${selectedProduct.sellingPriceDh.toFixed(2)} DH`}
+                          {priceMode === 'promo' && selectedProduct.promoPriceDh && `Promo: ${selectedProduct.promoPriceDh.toFixed(2)} DH`}
+                          {priceMode === 'custom' && `Cost: ${selectedProduct.purchasePriceMad.toFixed(2)} DH`}
+                        </Typography>
+                      </Grid>
+
+                      <Grid item xs={12} sm={6}>
+                        <TextField
+                          label="Notes (optional)"
+                          value={notes}
+                          onChange={(e) => setNotes(e.target.value)}
+                          fullWidth
+                          multiline
+                          rows={2}
+                          size="small"
+                          helperText={priceMode === 'custom' && pricePerUnit < selectedProduct.purchasePriceMad
+                            ? 'Notes required when selling below cost'
+                            : 'Add notes for this sale'}
+                        />
+                      </Grid>
+                    </Grid>
+                  </>
+                )}
+              </Stack>
             </Grid>
 
-            {selectedProduct && (
-              <>
-                {selectedProduct.availableStock === 0 && (
-                  <Grid item xs={12}>
-                    <Alert severity="error">{tSales('insufficientStock')}</Alert>
-                  </Grid>
-                )}
+            <Grid item xs={12} md={4}>
+              <Paper
+                variant="outlined"
+                sx={(theme) => ({
+                  p: 2.5,
+                  borderRadius: 3,
+                  height: '100%',
+                  background: theme.palette.mode === 'dark'
+                    ? 'linear-gradient(160deg, rgba(212, 20, 90, 0.18), rgba(99, 102, 241, 0.14))'
+                    : 'linear-gradient(160deg, rgba(212, 20, 90, 0.08), rgba(99, 102, 241, 0.08))',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 2,
+                })}
+              >
+                <Box>
+                  <Typography variant="overline" sx={{ fontWeight: 600, color: 'text.secondary', letterSpacing: '0.08em' }}>
+                    Summary
+                  </Typography>
+                  <Typography variant="h5" sx={{ fontWeight: 700 }}>
+                    <CurrencyDisplay amount={totalAmount || 0} currency="DH" variant="h5" />
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {selectedProduct ? `${quantity} × ${pricePerUnit.toFixed(2)} DH` : 'Select a product to continue'}
+                  </Typography>
+                </Box>
 
-                <Grid item xs={12} sm={6}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <IconButton
-                      onClick={handleDecrement}
-                      disabled={quantity <= 1}
-                      color="primary"
-                    >
-                      <RemoveIcon />
-                    </IconButton>
-                    <TextField
-                      label={tSales('quantity')}
-                      type="number"
-                      value={quantity}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value) || 1;
-                        setQuantity(Math.min(Math.max(1, val), selectedProduct.availableStock));
-                      }}
-                      inputProps={{
-                        min: 1,
-                        max: selectedProduct.availableStock,
-                        step: 1,
-                      }}
-                      sx={{ flexGrow: 1 }}
-                      size="small"
-                    />
-                    <IconButton
-                      onClick={handleIncrement}
-                      disabled={quantity >= selectedProduct.availableStock}
-                      color="primary"
-                    >
-                      <AddIcon />
-                    </IconButton>
+                <Divider />
+
+                <Stack spacing={1}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="body2" color="text.secondary">Margin</Typography>
+                    <Typography variant="body2" fontWeight={600}>
+                      {selectedProduct ? `${margin.toFixed(1)}%` : '—'}
+                    </Typography>
                   </Box>
-                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-                    {tSales('availableStock')}: {selectedProduct.availableStock}
-                  </Typography>
-                </Grid>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="body2" color="text.secondary">Stock left</Typography>
+                    <Typography variant="body2" fontWeight={600}>
+                      {selectedProduct ? selectedProduct.availableStock : '—'}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="body2" color="text.secondary">Price mode</Typography>
+                    <Typography variant="body2" fontWeight={600}>
+                      {selectedProduct ? priceMode : '—'}
+                    </Typography>
+                  </Box>
+                </Stack>
 
-                <Grid item xs={12} sm={6}>
-                  <DatePicker
-                    label={tSales('saleDate')}
-                    value={saleDate}
-                    onChange={(newValue) => setSaleDate(newValue)}
-                    slotProps={{
-                      textField: {
-                        fullWidth: true,
-                        size: 'small',
-                      },
-                    }}
-                  />
-                </Grid>
-
-                <Grid item xs={12}>
-                  <FormControl component="fieldset">
-                    <FormLabel component="legend">Price Mode</FormLabel>
-                    <RadioGroup
-                      row
-                      value={priceMode}
-                      onChange={(e) => handlePriceModeChange(e.target.value as PriceMode)}
-                    >
-                      <FormControlLabel value="regular" control={<Radio />} label="Regular" />
-                      <FormControlLabel 
-                        value="promo" 
-                        control={<Radio />} 
-                        label="Promo"
-                        disabled={!selectedProduct.promoPriceDh || selectedProduct.promoPriceDh <= 0}
-                      />
-                      <FormControlLabel value="custom" control={<Radio />} label="Custom" />
-                    </RadioGroup>
-                  </FormControl>
-                </Grid>
-
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    label={tSales('pricePerUnit') + ' (DH)'}
-                    type="number"
-                    value={pricePerUnit}
-                    onChange={(e) => setPricePerUnit(parseFloat(e.target.value) || 0)}
-                    inputProps={{ step: '0.01', min: 0 }}
-                    fullWidth
-                    size="small"
-                    disabled={priceMode !== 'custom'}
-                  />
-                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-                    {priceMode === 'regular' && `Regular: ${selectedProduct.sellingPriceDh.toFixed(2)} DH`}
-                    {priceMode === 'promo' && selectedProduct.promoPriceDh && `Promo: ${selectedProduct.promoPriceDh.toFixed(2)} DH`}
-                    {priceMode === 'custom' && `Cost: ${selectedProduct.purchasePriceMad.toFixed(2)} DH`}
-                  </Typography>
-                </Grid>
-
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    label="Notes (optional)"
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    fullWidth
-                    multiline
-                    rows={2}
-                    size="small"
-                    helperText={priceMode === 'custom' && pricePerUnit < selectedProduct.purchasePriceMad 
-                      ? 'Notes required when selling below cost' 
-                      : 'Add notes for this sale'}
-                  />
-                </Grid>
-
-                {totalAmount > 0 && (
-                  <Grid item xs={12}>
-                    <Card sx={{ bgcolor: 'primary.light', color: 'primary.contrastText' }}>
-                      <CardContent>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                            {tSales('totalAmount')}:
-                          </Typography>
-                          <Typography variant="h5" sx={{ fontWeight: 700 }}>
-                            <CurrencyDisplay amount={totalAmount} currency="DH" variant="h5" />
-                          </Typography>
-                        </Box>
-                        {selectedProduct && pricePerUnit > 0 && (
-                          <Typography variant="caption" sx={{ mt: 1, display: 'block', opacity: 0.9 }}>
-                            Margin: {margin.toFixed(1)}%
-                            {priceMode === 'custom' && pricePerUnit < selectedProduct.purchasePriceMad && (
-                              <span style={{ color: '#ffcdd2', marginLeft: 8 }}>⚠ Below cost</span>
-                            )}
-                          </Typography>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </Grid>
+                {selectedProduct && priceMode === 'custom' && pricePerUnit < selectedProduct.purchasePriceMad && (
+                  <Alert severity="warning">Selling below cost requires notes.</Alert>
                 )}
 
-                <Grid item xs={12}>
+                <Box sx={{ mt: 'auto' }}>
                   <Button
                     variant="contained"
                     fullWidth
                     size="large"
                     onClick={handleQuickSale}
                     disabled={
-                      !selectedProduct || 
-                      quantity > selectedProduct.availableStock || 
+                      !selectedProduct ||
+                      quantity > selectedProduct.availableStock ||
                       quantity < 1 ||
                       pricePerUnit <= 0 ||
                       (priceMode === 'custom' && pricePerUnit < selectedProduct.purchasePriceMad && !notes.trim())
                     }
                     sx={{
-                      py: 1.5,
-                      fontSize: '1.1rem',
-                      fontWeight: 600,
-                      boxShadow: '0 4px 12px rgba(25, 118, 210, 0.4)',
+                      py: 1.3,
+                      fontWeight: 700,
+                      boxShadow: '0 6px 18px rgba(212, 20, 90, 0.3)',
                       '&:hover': {
-                        boxShadow: '0 6px 16px rgba(25, 118, 210, 0.5)',
+                        boxShadow: '0 8px 24px rgba(212, 20, 90, 0.4)',
                       },
                     }}
                   >
                     Complete Sale
                   </Button>
-                </Grid>
-              </>
-            )}
+                </Box>
+              </Paper>
+            </Grid>
           </Grid>
         </Paper>
       </Box>

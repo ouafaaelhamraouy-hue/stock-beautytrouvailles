@@ -9,6 +9,7 @@ import {
   TextField,
   Button,
   Alert,
+  MenuItem,
 } from '@mui/material';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
@@ -17,6 +18,7 @@ import { RouteGuard } from '@/components/auth/RouteGuard';
 export default function MakeAdminPage() {
   const t = useTranslations('common');
   const [email, setEmail] = useState('ouafaa.elhamraouy@gmail.com');
+  const [role, setRole] = useState<'STAFF' | 'ADMIN' | 'SUPER_ADMIN'>('STAFF');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -33,7 +35,7 @@ export default function MakeAdminPage() {
       const response = await fetch('/api/admin/create-admin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, role }),
       });
 
       const data = await response.json();
@@ -41,9 +43,9 @@ export default function MakeAdminPage() {
       if (response.ok && data.success) {
         setResult({
           success: true,
-          message: `✅ User ${data.user.email} is now an ADMIN!`,
+          message: `✅ User ${data.user.email} is now ${data.user.role}!`,
         });
-        toast.success('Admin user created successfully');
+        toast.success('User activated successfully');
         setEmail('');
       } else {
         setResult({
@@ -68,7 +70,7 @@ export default function MakeAdminPage() {
     <Container maxWidth="sm">
       <Box sx={{ my: 4 }}>
         <Typography variant="h4" component="h1" gutterBottom sx={{ fontWeight: 600 }}>
-          Make User Admin
+          Activate User
         </Typography>
 
         <Paper elevation={2} sx={{ p: 3, mt: 3, borderRadius: 2 }}>
@@ -79,8 +81,21 @@ export default function MakeAdminPage() {
               onChange={(e) => setEmail(e.target.value)}
               fullWidth
               placeholder="user@example.com"
-              helperText="Enter the email of the user to make admin"
+              helperText="Enter the email of the user to activate"
             />
+
+            <TextField
+              label="Role"
+              value={role}
+              onChange={(e) => setRole(e.target.value as 'STAFF' | 'ADMIN' | 'SUPER_ADMIN')}
+              fullWidth
+              select
+              helperText="Choose the role to assign (also activates the user)"
+            >
+              <MenuItem value="STAFF">Staff</MenuItem>
+              <MenuItem value="ADMIN">Admin</MenuItem>
+              <MenuItem value="SUPER_ADMIN">Super Admin</MenuItem>
+            </TextField>
 
             {result && (
               <Alert severity={result.success ? 'success' : 'error'}>
@@ -100,16 +115,16 @@ export default function MakeAdminPage() {
                 },
               }}
             >
-              {loading ? t('loading') : 'Make Admin'}
+              {loading ? t('loading') : 'Activate User'}
             </Button>
 
             <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" color="text.secondary" component="div">
                 <strong>Note:</strong> The user must:
-                <ul style={{ marginTop: 8, marginBottom: 0 }}>
+                <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2 }}>
                   <li>Exist in Supabase Auth</li>
                   <li>Have logged in at least once (to create their profile)</li>
-                </ul>
+                </Box>
               </Typography>
             </Box>
           </Box>

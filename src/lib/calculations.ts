@@ -1,4 +1,6 @@
-import { Decimal } from '@prisma/client/runtime/library';
+import { Prisma } from '@prisma/client';
+
+type Decimal = Prisma.Decimal;
 
 /**
  * Calculate current stock
@@ -194,15 +196,14 @@ export function calculateSaleTotal(
 
 /**
  * Calculate shipment total cost in EUR
- * Formula: shippingCostEUR + customsCostEUR + packagingCostEUR + itemsCostEUR
+ * Formula: shippingCostEUR + packagingCostEUR + itemsCostEUR
  */
 export function calculateShipmentTotalEUR(
   shippingCostEUR: number,
-  customsCostEUR: number,
   packagingCostEUR: number,
   itemsCostEUR: number
 ): number {
-  return Number((shippingCostEUR + customsCostEUR + packagingCostEUR + itemsCostEUR).toFixed(2));
+  return Number((shippingCostEUR + packagingCostEUR + itemsCostEUR).toFixed(2));
 }
 
 /**

@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import type { User } from '@supabase/supabase-js';
+import type { Session, User } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
 
 interface AuthContextType {
@@ -10,6 +10,12 @@ interface AuthContextType {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signInWithGoogle: () => Promise<{ error: Error | null }>;
+  signUp: (payload: {
+    email: string;
+    password: string;
+    fullName?: string;
+    inviteCode?: string;
+  }) => Promise<{ error: Error | null; data: { user: User | null; session: Session | null } | null }>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -65,6 +71,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error };
   };
 
+  const signUp = async ({
+    email,
+    password,
+    fullName,
+    inviteCode,
+  }: {
+    email: string;
+    password: string;
+    fullName?: string;
+    inviteCode?: string;
+  }) => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: fullName || null,
+          invite_code: inviteCode || null,
+          pending_approval: true,
+        },
+      },
+    });
+
+    if (!error && data?.session?.user) {
+      setUser(data.session.user);
+    }
+
+    return { error, data: data ?? null };
+  };
+
   const signOut = async () => {
     await supabase.auth.signOut();
     setUser(null);
@@ -77,7 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signInWithGoogle, signOut, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signInWithGoogle, signUp, signOut, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

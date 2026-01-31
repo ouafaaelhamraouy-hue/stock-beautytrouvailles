@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   Dialog,
@@ -46,30 +46,22 @@ export function BrandForm({
     reset,
   } = useForm<BrandFormData>({
     resolver: zodResolver(brandSchema),
-    defaultValues: initialData || {
-      name: '',
-      country: 'France',
-      logoUrl: '',
+    defaultValues: {
+      name: initialData?.name ?? '',
+      country: initialData?.country ?? 'France',
+      logoUrl: initialData?.logoUrl ?? '',
     },
   });
 
   useEffect(() => {
-    if (initialData) {
-      reset({
-        name: initialData.name,
-        country: initialData.country || 'France',
-        logoUrl: initialData.logoUrl || '',
-      });
-    } else {
-      reset({
-        name: '',
-        country: 'France',
-        logoUrl: '',
-      });
-    }
+    reset({
+      name: initialData?.name ?? '',
+      country: initialData?.country ?? 'France',
+      logoUrl: initialData?.logoUrl ?? '',
+    });
   }, [initialData, reset]);
 
-  const handleFormSubmit = async (data: BrandFormData) => {
+  const handleFormSubmit: SubmitHandler<BrandFormData> = async (data) => {
     try {
       await onSubmit(data);
       reset();

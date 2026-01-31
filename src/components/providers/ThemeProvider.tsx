@@ -4,7 +4,8 @@ import { createContext, useContext, useState, useEffect, ReactNode, useMemo } fr
 import { ThemeProvider as MuiThemeProvider, CssBaseline, useMediaQuery } from '@mui/material';
 import { getTheme } from '@/lib/theme';
 
-type ThemeMode = 'light' | 'dark';
+type ThemeMode = 'light' | 'dark' | 'system';
+type ResolvedThemeMode = 'light' | 'dark';
 
 interface ThemeContextType {
   mode: ThemeMode;
@@ -25,61 +26,88 @@ export function useThemeMode() {
 interface ThemeProviderProps {
   children: ReactNode;
   locale?: 'fr' | 'en';
+  initialMode?: ThemeMode;
+  initialResolvedMode?: ResolvedThemeMode;
 }
 
 const THEME_STORAGE_KEY = 'theme-mode';
 
-export function ThemeProvider({ children, locale = 'en' }: ThemeProviderProps) {
+export function ThemeProvider({ children, locale = 'en', initialMode, initialResolvedMode }: ThemeProviderProps) {
   // Check for system preference (with noSSR to avoid hydration mismatch)
   const prefersDarkMode = useMediaQuery('(prefers-color-scheme: dark)', { noSsr: true });
-  
-  // Initialize with a safe default, then update on mount
-  const [mode, setModeState] = useState<ThemeMode>('light');
+  const [mode, setModeState] = useState<ThemeMode>(initialMode ?? 'system');
+  const [resolvedMode, setResolvedMode] = useState<ResolvedThemeMode>(() => {
+    if (initialMode === 'light' || initialMode === 'dark') return initialMode;
+    if (initialResolvedMode === 'light' || initialResolvedMode === 'dark') return initialResolvedMode;
+    return 'light';
+  });
   const [mounted, setMounted] = useState(false);
 
-  // Initialize theme on mount to avoid hydration issues
   useEffect(() => {
     setMounted(true);
-    
-    // Get saved preference or use system preference
-    const saved = localStorage.getItem(THEME_STORAGE_KEY) as ThemeMode | null;
-    if (saved === 'light' || saved === 'dark') {
-      setModeState(saved);
-    } else {
-      // Use system preference if no saved preference
-      setModeState(prefersDarkMode ? 'dark' : 'light');
-    }
-  }, [prefersDarkMode]); // Run on mount and when system preference changes
+  }, []);
 
-  // Listen for system preference changes (only if no manual preference is set)
+  // Sync initial mode from storage if no server-provided mode
+  useEffect(() => {
+    if (initialMode) return;
+    const saved = localStorage.getItem(THEME_STORAGE_KEY) as ThemeMode | null;
+    if (saved === 'light' || saved === 'dark' || saved === 'system') {
+      setModeState(saved);
+    }
+  }, [initialMode]);
+
   useEffect(() => {
     if (!mounted) return;
-    
-    const saved = localStorage.getItem(THEME_STORAGE_KEY);
-    if (!saved) {
-      setModeState(prefersDarkMode ? 'dark' : 'light');
-    }
-  }, [prefersDarkMode, mounted]);
+    const nextResolved: ResolvedThemeMode =
+      mode === 'system' ? (prefersDarkMode ? 'dark' : 'light') : mode;
+    setResolvedMode(nextResolved);
+    document.cookie = `theme-resolved=${nextResolved}; path=/; max-age=31536000; SameSite=Lax`;
+  }, [mode, prefersDarkMode, mounted]);
 
   const setMode = (newMode: ThemeMode) => {
     setModeState(newMode);
     if (typeof window !== 'undefined') {
       localStorage.setItem(THEME_STORAGE_KEY, newMode);
+      document.cookie = `${THEME_STORAGE_KEY}=${newMode}; path=/; max-age=31536000; SameSite=Lax`;
+      if (newMode === 'light' || newMode === 'dark') {
+        document.cookie = `theme-resolved=${newMode}; path=/; max-age=31536000; SameSite=Lax`;
+      }
     }
   };
 
   const toggleMode = () => {
-    const newMode = mode === 'light' ? 'dark' : 'light';
-    setMode(newMode);
+    const nextMode = mode === 'light' ? 'dark' : mode === 'dark' ? 'system' : 'light';
+    setMode(nextMode);
   };
 
   // Memoize theme to avoid unnecessary recalculations
-  const theme = useMemo(() => getTheme(locale, mode), [locale, mode]);
+  const theme = useMemo(() => getTheme(locale, resolvedMode), [locale, resolvedMode]);
+  const fallbackTheme = useMemo(() => getTheme(locale, resolvedMode), [locale, resolvedMode]);
+
+  // Sync theme to document and browser UI
+  useEffect(() => {
+    if (!mounted) return;
+    const root = document.documentElement;
+    root.dataset.theme = resolvedMode;
+    root.style.colorScheme = resolvedMode;
+
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme) {
+      metaTheme.setAttribute('content', resolvedMode === 'dark' ? '#0F172A' : '#F9FAFB');
+    }
+
+    root.classList.add('theme-transition');
+    const timeoutId = window.setTimeout(() => {
+      root.classList.remove('theme-transition');
+    }, 200);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [resolvedMode, mounted]);
 
   // Prevent flash of wrong theme by using a default until mounted
-  if (!mounted) {
+  if (!mounted && !initialMode) {
     return (
-      <MuiThemeProvider theme={getTheme(locale, 'light')}>
+      <MuiThemeProvider theme={fallbackTheme}>
         <CssBaseline />
         {children}
       </MuiThemeProvider>

@@ -1,4 +1,4 @@
-import { QueryClient } from '@tanstack/react-query';
+import { QueryClient, keepPreviousData } from '@tanstack/react-query';
 
 // Create a singleton QueryClient for better performance
 const createQueryClient = () =>
@@ -14,7 +14,7 @@ const createQueryClient = () =>
         // Enable structural sharing for better performance
         structuralSharing: true,
         // Use keepPreviousData for paginated lists to prevent UI flicker
-        keepPreviousData: true,
+        placeholderData: keepPreviousData,
       },
       mutations: {
         retry: 1,

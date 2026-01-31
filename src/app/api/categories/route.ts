@@ -22,6 +22,9 @@ export async function POST(request: Request) {
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'PRODUCTS_CREATE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -31,8 +34,8 @@ export async function POST(request: Request) {
     const { name, description } = body;
 
     // Check if category with this name already exists
-    const existingCategory = await prisma.category.findUnique({
-      where: { name },
+    const existingCategory = await prisma.category.findFirst({
+      where: { name, organizationId: userProfile.organizationId },
     });
 
     if (existingCategory) {
@@ -46,6 +49,7 @@ export async function POST(request: Request) {
       data: {
         name,
         description,
+        organizationId: userProfile.organizationId,
       },
     });
 
@@ -78,6 +82,9 @@ export async function GET() {
     if (!userProfile || !userProfile.isActive) {
       return NextResponse.json({ error: 'User not active' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     if (!hasPermission(userProfile.role, 'PRODUCTS_READ')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -85,6 +92,7 @@ export async function GET() {
 
     // Fetch categories - allow even if user profile doesn't exist yet
     const categories = await prisma.category.findMany({
+      where: { organizationId: userProfile.organizationId },
       orderBy: {
         name: 'asc',
       },

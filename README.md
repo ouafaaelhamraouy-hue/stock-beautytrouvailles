@@ -4,25 +4,24 @@ Stock management system built with Next.js 15, React 19, TypeScript, MUI v6, Sup
 
 ## 📊 Project Status
 
-**Current Phase:** Active Development
+**Current Phase:** Active Development (core modules implemented, UI/UX iterations ongoing)
 
 ---
 
-## ✅ Phase 1 - Foundation (COMPLETED)
+## ✅ Highlights
 
-### What Was Built
+- **Next.js 15 + App Router** with TypeScript strict mode
+- **MUI v6 + MUI X** with custom design system and responsive layout
+- **Supabase Auth** with profile bootstrap, org-scoped RBAC, and team management
+- **Core modules**: Dashboard, Products, Inventory, Sales (Quick Sale), Shipments, Expenses
+- **Products**: filters, stock status, import/export, adjustments, details panel
+- **Internationalization**: next-intl (EN/FR) with locale routing
+- **Theme system**: light / dark / system, cookie-persisted with early render sync
+- **Dashboard charts**: Revenue vs Profit trend + Stock health
 
-- **Next.js 15 Project** with App Router, TypeScript strict mode, src/ directory structure
-- **Dependencies installed**: MUI v6 + MUI X, Supabase client/SSR, Prisma, React Hook Form, Zod, next-intl, and utilities
-- **Environment configuration**: `.env` (for Prisma) and `.env.local` (for Next.js) with Supabase and database connection strings
-- **Prisma Schema**: Complete database schema with users, products, categories, suppliers, shipments, sales, expenses, and settings tables
-- **Database**: Migrations applied successfully, all tables created
-- **MUI Theme Setup**: ThemeProvider with locale-aware theming (FR/EN) and App Router cache integration
-- **Internationalization**: next-intl configured with French and English translations, locale routing under `[locale]`
-- **Basic Pages**: Login page and Dashboard placeholder
-- **Middleware**: Locale detection/routing + auth guard scaffold
+---
 
-### Project Structure
+## Project Structure (abridged)
 
 ```
 stock-beautytrouvailles/
@@ -31,7 +30,7 @@ stock-beautytrouvailles/
 │   │   ├── [locale]/
 │   │   │   ├── (auth)/
 │   │   │   │   └── login/
-│   │   │   ├── dashboard/
+│   │   │   ├── (dashboard)/
 │   │   │   │   ├── layout.tsx
 │   │   │   │   └── page.tsx
 │   │   │   ├── layout.tsx
@@ -71,43 +70,30 @@ stock-beautytrouvailles/
 
 ---
 
-## ✅ Phase 2 - Authentication (COMPLETED)
+## Theme & UI
 
-### What Was Built
-
-- **Supabase Auth Integration**: Server, client, and middleware clients configured
-- **AuthProvider & useAuth Hook**: Context-based authentication state management
-- **Login Page**: Fully functional with error handling and loading states
-- **User Profile Management**: Auto-creates user profile in database on first login
-- **API Endpoints**: `/api/user/profile` for fetching user data
-- **Middleware Auth Guard**: Redirects unauthenticated users to login, authenticated users away from login
-- **Role-Based Access**: Foundation in place (ADMIN/STAFF roles stored in database)
-- **Logout Functionality**: Working with proper session cleanup
-
-### Deliverables
-
-- ✅ Login works
-- ✅ Protected routes work
-- ✅ User profile visible in dashboard
-- ✅ Role stored in database
+- **Modes**: Light / Dark / System
+- **Persistence**: `theme-mode` + `theme-resolved` cookies to avoid flash on first load
+- **Toggle**: animated sliding switch in the topbar
 
 ---
 
-## ⚠️ Phase 3 - Layout Components (IN PROGRESS)
+## Development
 
-### What Exists
+### Scripts
 
-- ✅ Basic DashboardLayout with AppBar
-- ✅ User avatar and logout button
-- ✅ Responsive structure foundation
-
-### What's Missing (Per Spec)
-
-- ❌ Sidebar navigation with menu items
-- ❌ Topbar with search, notifications, user menu, locale switch
-- ❌ MobileNav bottom bar (<768px) with Dashboard, Products, Quick Sale, Inventory, Menu
-
-**Status:** Basic layout exists, needs full implementation per Phase 3 spec.
+```bash
+npm run dev        # Start dev server (Turbopack)
+npm run build      # Production build
+npm run start      # Start production server
+npm run lint       # Lint
+npm run check      # Lint + typecheck
+npm run db:generate
+npm run db:push
+npm run db:migrate
+npm run db:studio
+npm run db:seed
+```
 
 ---
 
@@ -189,6 +175,9 @@ DIRECT_URL="postgresql://user:password@host:port/database?sslmode=require"
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPER_ADMIN_INVITE_EMAILS=owner1@example.com,owner2@example.com
+# Optional (invite code gate for registration)
+# NEXT_PUBLIC_INVITE_CODES=code1,code2
 ```
 
 **Where to get these:**
@@ -241,7 +230,21 @@ npm --version
    - Navigate to `http://localhost:3000`
    - The app will automatically detect locale or use `/en` or `/fr`
    - Login at `/[locale]/login`
-   - Dashboard at `/[locale]/dashboard`
+  - Dashboard at `/[locale]/dashboard`
+
+## Deployment (Vercel)
+
+1. **Push to GitHub** (Vercel pulls from the repo)
+2. **Create a Vercel project** and link the repository
+3. **Set environment variables** in Vercel:
+   - From `.env`: `DATABASE_URL`, `DIRECT_URL`
+   - From `.env.local`: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+   - Optional: `SUPER_ADMIN_INVITE_EMAILS`
+4. **Apply database migrations**:
+   ```bash
+   npx prisma migrate deploy
+   ```
+   (Run once against the production database after the first deploy.)
 
 ### Troubleshooting
 
@@ -286,35 +289,24 @@ npm --version
 
 ### Current Issues:
 - ⚠️ **Database connection warnings**: Prisma sometimes tries old connection string format, but API handles gracefully with fallback
-- ⚠️ **Layout incomplete**: Phase 3 needs sidebar, topbar, and mobile nav
+- ✅ **Layout implemented**: sidebar, topbar, and mobile nav are in place
 
-### Missing Infrastructure (Per Spec):
-- ❌ `src/lib/calculations.ts` - Business logic calculations
-- ❌ `src/lib/validations.ts` - Zod validation schemas  
-- ❌ `src/lib/permissions.ts` - Permission checks
-- ❌ `src/lib/format.ts` - Locale-aware formatting
-- ❌ `src/lib/offlineQueue.ts` - PWA offline queue
-- ❌ `src/components/ui/` - Reusable UI components (StatsCard, ErrorState, etc.)
+### Remaining Infrastructure:
+- ⚠️ `src/lib/offlineQueue.ts` - PWA offline queue
 
-### Database Integrity (Per Spec):
-- ⚠️ Need to implement DB triggers for:
-  - `quantitySold` and `quantityRemaining` auto-update
-  - `Sale.totalAmount` validation
-  - `Shipment.totalCostEUR` and `totalCostDH` auto-calculation
-- ⚠️ Need to add RLS policies on all tables
-- ⚠️ Need to add DB constraints (quantities >= 0, etc.)
+### Database Integrity:
+- ✅ Triggers, constraints, and RLS policies are included in the org migration
 
 ### Next Steps:
-- 📝 **Phase 3**: Complete layout components (sidebar, topbar, mobile nav)
-- 📝 **Phase 4**: Build core UI components
-- 📝 **Phase 5-15**: Continue with remaining phases
+- 📝 **Offline queue** (PWA)
+- 📝 **Optional**: expanded team invite UI + audit logs
 
 ---
 
 ## Tech Stack
 
 - Next.js 15 (App Router)
-- React 19
+- React 18
 - TypeScript (strict mode)
 - MUI v6 + MUI X (Data Grid, Charts, Date Pickers)
 - Supabase (Auth + Postgres + Realtime)
