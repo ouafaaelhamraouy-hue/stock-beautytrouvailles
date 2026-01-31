@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
@@ -77,6 +77,18 @@ export function ProductForm({
 }: ProductFormProps) {
   const t = useTranslations('common');
   const [currentExchangeRate, setCurrentExchangeRate] = useState(exchangeRate);
+  const lastEdited = useRef<'EUR' | 'MAD' | null>(null);
+  const parseOptionalDecimal = (value: unknown) => {
+    if (value === '' || value === null || value === undefined) return null;
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      const normalized = value.replace(',', '.');
+      const parsed = Number(normalized);
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+    return null;
+  };
+  const parseDecimal = (value: unknown) => parseOptionalDecimal(value) ?? 0;
 
   const {
     control,
@@ -120,26 +132,53 @@ export function ProductForm({
 
   // Auto-calculate MAD when EUR changes
   useEffect(() => {
+    if (lastEdited.current !== 'EUR') return;
     if (purchasePriceEur && purchasePriceEur > 0) {
       const calculatedMad = purchasePriceEur * currentExchangeRate;
       setValue('purchasePriceMad', Number(calculatedMad.toFixed(2)), { shouldValidate: true });
+    } else {
+      setValue('purchasePriceMad', 0, { shouldValidate: true });
     }
   }, [purchasePriceEur, currentExchangeRate, setValue]);
 
   // Auto-calculate EUR when MAD changes (if EUR is empty)
   useEffect(() => {
-    if (purchasePriceMad && purchasePriceMad > 0 && (!purchasePriceEur || purchasePriceEur === 0)) {
+    if (lastEdited.current !== 'MAD') return;
+    if (purchasePriceMad && purchasePriceMad > 0) {
       const calculatedEur = purchasePriceMad / currentExchangeRate;
       setValue('purchasePriceEur', Number(calculatedEur.toFixed(2)), { shouldValidate: true });
+    } else {
+      setValue('purchasePriceEur', null, { shouldValidate: true });
     }
-  }, [purchasePriceMad, currentExchangeRate, setValue, purchasePriceEur]);
+  }, [purchasePriceMad, currentExchangeRate, setValue]);
 
   useEffect(() => {
     setCurrentExchangeRate(exchangeRate);
-  }, [exchangeRate]);
+    const hasEur = typeof purchasePriceEur === 'number' && purchasePriceEur > 0;
+    const hasMad = typeof purchasePriceMad === 'number' && purchasePriceMad > 0;
+
+    if (lastEdited.current === 'EUR' && hasEur) {
+      const calculatedMad = purchasePriceEur * exchangeRate;
+      setValue('purchasePriceMad', Number(calculatedMad.toFixed(2)), { shouldValidate: true });
+      return;
+    }
+    if (lastEdited.current === 'MAD' && hasMad) {
+      const calculatedEur = purchasePriceMad / exchangeRate;
+      setValue('purchasePriceEur', Number(calculatedEur.toFixed(2)), { shouldValidate: true });
+      return;
+    }
+    if (hasEur) {
+      const calculatedMad = purchasePriceEur * exchangeRate;
+      setValue('purchasePriceMad', Number(calculatedMad.toFixed(2)), { shouldValidate: true });
+    } else if (hasMad) {
+      const calculatedEur = purchasePriceMad / exchangeRate;
+      setValue('purchasePriceEur', Number(calculatedEur.toFixed(2)), { shouldValidate: true });
+    }
+  }, [exchangeRate, purchasePriceEur, purchasePriceMad, setValue]);
 
   useEffect(() => {
     if (initialData) {
+      lastEdited.current = null;
       reset({
         name: initialData.name,
         brandId: initialData.brandId || null,
@@ -154,6 +193,7 @@ export function ProductForm({
         reorderLevel: initialData.reorderLevel,
       });
     } else {
+      lastEdited.current = null;
       reset({
         name: '',
         brandId: null,
@@ -310,7 +350,12 @@ export function ProductForm({
               {/* Purchase Price - EUR */}
               <Grid item xs={12} sm={6}>
                 <TextField
-                  {...register('purchasePriceEur', { valueAsNumber: true })}
+                  {...register('purchasePriceEur', {
+                    setValueAs: parseOptionalDecimal,
+                    onChange: () => {
+                      lastEdited.current = 'EUR';
+                    },
+                  })}
                   label="PA (Prix Achat) EUR"
                   fullWidth
                   type="number"
@@ -323,7 +368,12 @@ export function ProductForm({
               {/* Purchase Price - MAD */}
               <Grid item xs={12} sm={6}>
                 <TextField
-                  {...register('purchasePriceMad', { valueAsNumber: true })}
+                  {...register('purchasePriceMad', {
+                    setValueAs: parseDecimal,
+                    onChange: () => {
+                      lastEdited.current = 'MAD';
+                    },
+                  })}
                   label="PA (Prix Achat) MAD"
                   fullWidth
                   required
@@ -337,7 +387,7 @@ export function ProductForm({
               {/* Selling Price */}
               <Grid item xs={12} sm={6}>
                 <TextField
-                  {...register('sellingPriceDh', { valueAsNumber: true })}
+                  {...register('sellingPriceDh', { setValueAs: parseDecimal })}
                   label="PV (Prix Vente) MAD"
                   fullWidth
                   required
@@ -351,7 +401,7 @@ export function ProductForm({
               {/* Promo Price */}
               <Grid item xs={12} sm={6}>
                 <TextField
-                  {...register('promoPriceDh', { valueAsNumber: true })}
+                  {...register('promoPriceDh', { setValueAs: parseOptionalDecimal })}
                   label="Promo Price MAD (optional)"
                   fullWidth
                   type="number"
@@ -370,7 +420,7 @@ export function ProductForm({
                   type="number"
                   inputProps={{ step: '1', min: 0 }}
                   error={!!errors.reorderLevel}
-                  helperText={errors.reorderLevel?.message}
+                  helperText={errors.reorderLevel?.message || 'Low stock alert threshold'}
                 />
               </Grid>
             </Grid>
