@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
+const defaultOrg = { name: 'BeautyTrouvailles', slug: 'beautytrouvailles' };
 
 // Default settings from Excel Charges sheet
 const DEFAULT_SETTINGS = {
@@ -14,12 +15,22 @@ const DEFAULT_SETTINGS = {
 
 async function main() {
   console.log('🌱 Seeding settings...');
+  const organization = await prisma.organization.upsert({
+    where: { slug: defaultOrg.slug },
+    update: {},
+    create: { name: defaultOrg.name, slug: defaultOrg.slug },
+  });
 
   for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
     await prisma.setting.upsert({
-      where: { key },
+      where: {
+        organizationId_key: {
+          organizationId: organization.id,
+          key,
+        },
+      },
       update: { value },
-      create: { key, value },
+      create: { key, value, organizationId: organization.id },
     });
     console.log(`✅ Setting: ${key} = ${value}`);
   }

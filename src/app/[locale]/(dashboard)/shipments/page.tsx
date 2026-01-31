@@ -35,6 +35,13 @@ interface Shipment {
   };
 }
 
+type ShipmentApiItem = Shipment & {
+  totalCostEur?: number | string | null;
+  totalCostDh?: number | string | null;
+  totalCostEUR?: number | string | null;
+  totalCostDH?: number | string | null;
+};
+
 export default function ShipmentsPage() {
   const t = useTranslations('nav');
   const [shipments, setShipments] = useState<Shipment[]>([]);
@@ -50,7 +57,8 @@ export default function ShipmentsPage() {
         throw new Error('Failed to fetch shipments');
       }
       const data = await response.json();
-      const normalized = (data.shipments || []).map((shipment: any) => ({
+      const list = Array.isArray(data?.shipments) ? (data.shipments as ShipmentApiItem[]) : [];
+      const normalized = list.map((shipment) => ({
         ...shipment,
         totalCostEUR:
           typeof shipment.totalCostEUR === 'number'

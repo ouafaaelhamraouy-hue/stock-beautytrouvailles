@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
+const defaultOrg = { name: 'BeautyTrouvailles', slug: 'beautytrouvailles' };
 
 const categories = [
   {
@@ -42,17 +43,27 @@ const categories = [
 
 async function main() {
   console.log('Seeding categories...');
+  const organization = await prisma.organization.upsert({
+    where: { slug: defaultOrg.slug },
+    update: {},
+    create: { name: defaultOrg.name, slug: defaultOrg.slug },
+  });
 
   for (const category of categories) {
     const result = await prisma.category.upsert({
-      where: { name: category.name },
+      where: {
+        organizationId_name: {
+          organizationId: organization.id,
+          name: category.name,
+        },
+      },
       update: {
         nameFr: category.nameFr,
         targetMargin: category.targetMargin,
         minMargin: category.minMargin,
         color: category.color,
       },
-      create: category,
+      create: { ...category, organizationId: organization.id },
     });
     console.log(`✓ ${result.name}`);
   }

@@ -44,6 +44,9 @@ export async function POST(request: Request) {
     if (!hasPermission(userProfile.role, 'PRODUCTS_CREATE')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
+    if (!userProfile.organizationId) {
+      return NextResponse.json({ error: 'User has no organization' }, { status: 403 });
+    }
 
     const body = await request.json();
     const { sheets } = body as { sheets?: SheetData[] };
@@ -78,7 +81,12 @@ export async function POST(request: Request) {
         // Create or find Arrivage for this sheet
         // Sheet name format: "COMMANDE 1111" becomes reference "COMMANDE 1111"
         let arrivage = await prisma.arrivage.findUnique({
-          where: { reference: sheetName },
+          where: {
+            organizationId_reference: {
+              organizationId: userProfile.organizationId,
+              reference: sheetName,
+            },
+          },
         });
 
         if (!arrivage) {
@@ -110,6 +118,7 @@ export async function POST(request: Request) {
               totalUnits,
               status: 'RECEIVED', // Assume received if importing
               receivedDate: new Date(),
+              organizationId: userProfile.organizationId,
             },
           });
           results.arrivagesCreated++;
@@ -216,7 +225,12 @@ export async function POST(request: Request) {
             let category;
             if (categoryName && categoryName.trim()) {
               category = await prisma.category.findUnique({
-                where: { name: categoryName.trim() },
+                where: {
+                  organizationId_name: {
+                    organizationId: userProfile.organizationId,
+                    name: categoryName.trim(),
+                  },
+                },
               });
 
               if (!category) {
@@ -224,17 +238,21 @@ export async function POST(request: Request) {
                   data: {
                     name: categoryName.trim(),
                     description: null,
+                    organizationId: userProfile.organizationId,
                   },
                 });
               }
             } else {
               // Use default category or create one
-              category = await prisma.category.findFirst();
+              category = await prisma.category.findFirst({
+                where: { organizationId: userProfile.organizationId },
+              });
               if (!category) {
                 category = await prisma.category.create({
                   data: {
                     name: 'Uncategorized',
                     description: 'Default category for imported products',
+                    organizationId: userProfile.organizationId,
                   },
                 });
               }
@@ -271,6 +289,7 @@ export async function POST(request: Request) {
                 quantitySold: quantitySold || 0,
                 reorderLevel: 5, // Default reorder level
                 arrivageId: arrivage.id, // Link to this arrivage
+                organizationId: userProfile.organizationId,
               },
             });
 

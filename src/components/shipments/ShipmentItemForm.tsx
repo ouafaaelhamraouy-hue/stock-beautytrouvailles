@@ -112,7 +112,7 @@ export function ShipmentItemForm({
       setSelectedProductId('');
       setCostPerUnitDH(0);
     }
-  }, [initialData, reset]);
+  }, [initialData, reset, exchangeRate]);
 
   useEffect(() => {
     if (lastEdited.current === 'DH') return;

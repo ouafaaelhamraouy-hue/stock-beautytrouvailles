@@ -270,6 +270,7 @@ export async function PUT(
                 newQty: product.quantityReceived - product.quantitySold,
                 reference: `Sale ${id} (bundle updated)`,
                 userId: user.id,
+                organizationId: userProfile.organizationId,
               },
             });
           }
@@ -294,6 +295,7 @@ export async function PUT(
                 productId: item.productId,
                 quantity: item.quantity,
                 pricePerUnit: item.pricePerUnit,
+                organizationId: userProfile.organizationId,
               })),
             },
           },
@@ -396,6 +398,7 @@ export async function PUT(
               newQty: product.quantityReceived - product.quantitySold,
               reference: `Sale ${id} (updated)`,
               userId: user.id,
+              organizationId: userProfile.organizationId,
             },
           });
         }
@@ -513,6 +516,7 @@ export async function DELETE(
                 newQty: product.quantityReceived - product.quantitySold,
                 reference: `Sale ${id} (deleted)`,
                 userId: user.id,
+                organizationId: userProfile.organizationId,
               },
             });
           }
@@ -539,6 +543,7 @@ export async function DELETE(
               newQty: product.quantityReceived - product.quantitySold,
               reference: `Sale ${id} (deleted)`,
               userId: user.id,
+              organizationId: userProfile.organizationId,
             },
           });
         }

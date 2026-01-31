@@ -115,6 +115,28 @@ interface Product {
   };
 }
 
+type ShipmentItemPayload = {
+  id: string;
+  name?: string | null;
+  sku?: string | null;
+  category?: { name?: string | null } | null;
+  quantityReceived?: number | string | null;
+  quantitySold?: number | string | null;
+  purchasePriceEur?: unknown;
+  purchasePriceMad?: unknown;
+};
+
+type ProductPayload = {
+  id: string;
+  name?: string | null;
+  sku?: string | null;
+  category?: { name?: string | null } | null;
+  purchasePriceEur?: unknown;
+  purchasePriceEUR?: unknown;
+  purchasePriceMad?: unknown;
+  purchasePriceMAD?: unknown;
+};
+
 const PURCHASE_SOURCE_LABELS: Record<string, string> = {
   ACTION: 'Action',
   RITUALS: 'Rituals',
@@ -175,7 +197,7 @@ export default function ShipmentDetailPage() {
             : Number(value) || 0;
 
       const exchangeRateValue = toNumber(data.exchangeRate);
-      const items = (data.items ?? data.products ?? []).map((product: any) => {
+      const items: ShipmentItem[] = (data.items ?? data.products ?? []).map((product: ShipmentItemPayload) => {
         const quantityReceived = Number(product.quantityReceived) || 0;
         const quantitySold = Number(product.quantitySold) || 0;
         const purchasePriceEur = toNumber(product.purchasePriceEur);
@@ -203,7 +225,10 @@ export default function ShipmentDetailPage() {
           costPerUnitDH,
         };
       });
-      const itemsCostEUR = items.reduce((sum, item) => sum + item.quantity * item.costPerUnitEUR, 0);
+      const itemsCostEUR = items.reduce(
+        (sum: number, item: ShipmentItem) => sum + item.quantity * item.costPerUnitEUR,
+        0
+      );
       const totalCostEUR = toNumber(data.totalCostEur) || itemsCostEUR;
       const totalCostDH = toNumber(data.totalCostDh) || totalCostEUR * exchangeRateValue;
 
@@ -238,11 +263,11 @@ export default function ShipmentDetailPage() {
         throw new Error('Failed to fetch products');
       }
       const data = await response.json();
-      const list = Array.isArray(data) ? data : (data.products || []);
-      const mapped = list.map((product: any) => ({
+      const list = Array.isArray(data) ? (data as ProductPayload[]) : ((data.products || []) as ProductPayload[]);
+      const mapped = list.map((product) => ({
         id: product.id,
-        sku: product.sku || product.name,
-        name: product.name,
+        sku: product.sku || product.name || '',
+        name: product.name || '',
         basePriceEUR: Number(product.purchasePriceEur ?? product.purchasePriceEUR ?? 0),
         basePriceDH: Number(product.purchasePriceMad ?? product.purchasePriceMAD ?? 0),
         category: {

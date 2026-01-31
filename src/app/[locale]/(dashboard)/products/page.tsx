@@ -127,7 +127,7 @@ export default function ProductsPage() {
 
   const { data: categories = [], isLoading: categoriesLoading } = useCategories();
 
-  const products = productsData?.products || [];
+  const products = useMemo<Product[]>(() => productsData?.products ?? [], [productsData?.products]);
   const loading = productsLoading || categoriesLoading;
   const error = productsError ? (productsError as Error).message : null;
 

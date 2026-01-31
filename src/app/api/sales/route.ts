@@ -238,6 +238,7 @@ export async function POST(request: Request) {
             isPromo: pricingMode === 'PROMO' ? true : isPromo,
             saleDate: saleDate || new Date(),
             notes: notes || null,
+            organizationId: userProfile.organizationId,
           },
           include: {
             product: {
@@ -272,6 +273,7 @@ export async function POST(request: Request) {
             newQty: product.quantityReceived - newQtySold,
             reference: `Sale ${sale.id}`,
             userId: user.id,
+            organizationId: userProfile.organizationId,
           },
         });
 
@@ -347,11 +349,13 @@ export async function POST(request: Request) {
           isPromo: true,
           saleDate: saleDate || new Date(),
           notes: notes || null,
+          organizationId: userProfile.organizationId,
           items: {
             create: bundleItems.map((item) => ({
               productId: item.productId,
               quantity: item.quantity,
               pricePerUnit: item.pricePerUnit,
+              organizationId: userProfile.organizationId,
             })),
           },
         },
@@ -388,6 +392,7 @@ export async function POST(request: Request) {
             newQty: product.quantityReceived - newQtySold,
             reference: `Sale ${sale.id} (bundle)`,
             userId: user.id,
+            organizationId: userProfile.organizationId,
           },
         });
       }

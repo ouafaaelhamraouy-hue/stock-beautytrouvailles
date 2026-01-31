@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
+const defaultOrg = { name: 'BeautyTrouvailles', slug: 'beautytrouvailles' };
 
 const brands = [
   { name: 'Rituals', country: 'Netherlands' },
@@ -15,14 +16,24 @@ const brands = [
 
 async function main() {
   console.log('Seeding brands...');
+  const organization = await prisma.organization.upsert({
+    where: { slug: defaultOrg.slug },
+    update: {},
+    create: { name: defaultOrg.name, slug: defaultOrg.slug },
+  });
 
   for (const brand of brands) {
     const result = await prisma.brand.upsert({
-      where: { name: brand.name },
+      where: {
+        organizationId_name: {
+          organizationId: organization.id,
+          name: brand.name,
+        },
+      },
       update: {
         country: brand.country,
       },
-      create: brand,
+      create: { ...brand, organizationId: organization.id },
     });
     console.log(`✓ ${result.name}`);
   }

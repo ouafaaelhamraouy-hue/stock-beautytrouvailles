@@ -1,9 +1,15 @@
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
+const defaultOrg = { name: 'BeautyTrouvailles', slug: 'beautytrouvailles' };
 
 async function main() {
   console.log('🌱 Seeding database...');
+  const organization = await prisma.organization.upsert({
+    where: { slug: defaultOrg.slug },
+    update: {},
+    create: { name: defaultOrg.name, slug: defaultOrg.slug },
+  });
 
   // Seed Categories
   const categories = [
@@ -32,9 +38,14 @@ async function main() {
   console.log('📁 Creating categories...');
   for (const category of categories) {
     await prisma.category.upsert({
-      where: { name: category.name },
+      where: {
+        organizationId_name: {
+          organizationId: organization.id,
+          name: category.name,
+        },
+      },
       update: {},
-      create: category,
+      create: { ...category, organizationId: organization.id },
     });
     console.log(`✅ Category: ${category.name}`);
   }
